@@ -14,6 +14,7 @@ from .core import Params, IMG_EXT, analyse
 from .report import write_excel, write_html, write_pptx
 from .stats import _find_new_probe, _copy_image_to_outdir
 from . import sensitivity as _sens
+from . import manifest as _manifest
 
 
 def collect(inputs):
@@ -29,10 +30,67 @@ def collect(inputs):
     return files
 
 
+def _cmd_manifest_init(args) -> int:
+    folder = Path(args.folder)
+    if not folder.is_dir():
+        print(f"ERROR: '{folder}' is not a directory.", file=sys.stderr)
+        return 1
+    try:
+        out, warnings = _manifest.init_manifest(folder)
+    except FileExistsError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    for w in warnings:
+        print(f"[manifest] WARNING: {w}")
+    print(f"[manifest] Written: {out}  ({_count_lines(out)-1} image entries)")
+    print(f"[manifest] Edit the file to set probe IDs, zustand, wiederholung, winkel_deg, sitzung.")
+    return 0
+
+
+def _count_lines(path: Path) -> int:
+    with open(path, encoding="utf-8-sig") as fh:
+        return sum(1 for _ in fh)
+
+
+def _cmd_manifest_validate(args) -> int:
+    folder = Path(args.folder)
+    rows, load_warnings = _manifest.load_manifest(folder)
+    for w in load_warnings:
+        print(f"[manifest] WARNING: {w}")
+    errors = _manifest.validate(rows, folder)
+    if errors:
+        for e in errors:
+            print(f"[manifest] ERROR: {e}", file=sys.stderr)
+        print(f"[manifest] {len(errors)} error(s) found in {folder / 'manifest.csv'}")
+        return 1
+    print(f"[manifest] OK — {len(rows)} entries, no errors ({folder / 'manifest.csv'})")
+    return 0
+
+
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Abschätzung heller Verschleißflächen auf Ring-Stirnflächen")
-    ap.add_argument("inputs", nargs="+", help="Bilddateien, Ordner oder Glob-Muster")
-    ap.add_argument("-o", "--out", default="ring_wear_out", help="Ausgabeordner")
+    ap = argparse.ArgumentParser(
+        description="Abschätzung heller Verschleißflächen auf Ring-Stirnflächen",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sub = ap.add_subparsers(dest="command")
+
+    # ── manifest subcommand ──────────────────────────────────────────────────
+    p_mani = sub.add_parser("manifest", help="Manifest-Verwaltung für Wiederholmessungen")
+    mani_sub = p_mani.add_subparsers(dest="manifest_action")
+
+    p_init = mani_sub.add_parser(
+        "init",
+        help="Manifest aus Dateinamen im Ordner generieren (zum Nachbearbeiten)",
+    )
+    p_init.add_argument("folder", help="Ordner mit Bilddateien")
+
+    p_val = mani_sub.add_parser("validate", help="Manifest auf Fehler prüfen")
+    p_val.add_argument("folder", help="Ordner mit manifest.csv")
+
+    # ── analyse subcommand (default, positional) ─────────────────────────────
+    # Positional args on the top-level parser for backwards compatibility:
+    # ring_wear.py data/reference/ -o out/
+    ap.add_argument("inputs", nargs="*", help="Bilddateien, Ordner oder Glob-Muster")
     ap.add_argument("--bar-um", type=float, default=500.0, help="Länge des Maßstabsbalkens in µm")
     ap.add_argument("--um-per-px", type=float, default=None, help="Pixelgröße fest vorgeben")
     ap.add_argument("--nominal-area", type=float, default=43.2, help="Ringfläche in mm² (0 = aus)")
@@ -56,6 +114,20 @@ def main(argv=None):
     ap.add_argument("--no-sensitivity", action="store_true",
                     help="Methodenband-Berechnung deaktivieren")
     a = ap.parse_args(argv)
+
+    # ── Dispatch subcommands ─────────────────────────────────────────────────
+    if a.command == "manifest":
+        if a.manifest_action == "init":
+            sys.exit(_cmd_manifest_init(a))
+        elif a.manifest_action == "validate":
+            sys.exit(_cmd_manifest_validate(a))
+        else:
+            p_mani.print_help()
+            sys.exit(1)
+
+    if not a.inputs:
+        ap.print_help()
+        sys.exit(1)
 
     p = Params(bar_um=a.bar_um, um_per_px=a.um_per_px,
                nominal_area_mm2=(a.nominal_area or None),

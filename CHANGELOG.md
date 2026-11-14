@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.4.0 – 2026-11-14
+- **Phase 1 — Manifest-Infrastruktur** (neues Modul `ringwear/manifest.py`):
+  - Datenmodell `ManifestRow` (probe, zustand ∈ {neu, vor, nach}, wiederholung,
+    winkel_deg, sitzung, bemerkung) + `load_manifest()` / `validate()` / `init_manifest()`.
+  - `load_manifest(folder)`: liest `manifest.csv` falls vorhanden; fällt sonst auf
+    Dateinamen-Parser zurück.
+  - Dateinamen-Fallback: erkennt neues Schema (`P017_vor_r2.tif`, `P003_neu_r1_rot+2.tif`)
+    und alte Konvention (`T{N}_{Material}_{Force}N_{Area}mm2_ring.jpg`, zustand=nach).
+    Unbekannte Namen: Warnung, Probe = Dateinamenstamm.
+  - `validate(rows, folder)`: prüft doppelte Dateieinträge, doppelte Messkombinationen
+    (probe+zustand+wiederholung+winkel_deg), unbekannte Zustände, fehlende Dateien auf Disk.
+  - `init_manifest(folder)`: erzeugt `manifest.csv` aus Dateinamen zum Nachbearbeiten.
+    Verweigert Überschreiben einer vorhandenen Datei (FileExistsError).
+- **CLI-Subcommands** (rückwärtskompatibel — bestehende Nutzung mit Positionalargumenten bleibt):
+  - `ring_wear.py manifest init <ordner>` — Manifest generieren
+  - `ring_wear.py manifest validate <ordner>` — Manifest auf Fehler prüfen
+- 25 neue Tests in `tests/test_manifest.py` (CSV-Roundtrip, Fallback, Validation, CLI).
+- Gesamtzahl Tests: 40 (war 15).
+
 ## 0.3.0 – 2026-11-14
 - **Methodenband (systematische Unsicherheit)**: neues Modul `ringwear/sensitivity.py`
   mit einem 54-fachen Parameter-Grid-Sweep (k_sigma × tex_low_thr × tex_min_rel).
