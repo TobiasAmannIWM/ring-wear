@@ -346,7 +346,7 @@ def _scatter_svg(rows):
         f'font-weight="bold" fill="#1f4e79">'
         f'Resulting Contact Pressure vs. Normal Force</text>'
     )
-    scatter_sub = ("Dashed colored lines: regression. Grey dashed: method band. Solid bars: ±std."
+    scatter_sub = ("Dashed lines: regression. Colored dashed bars: method band (systematic). Solid bars: ±std (repetitions)."
                    if has_band else
                    "Dashed lines: regression through origin  ·  Error bars: ±1 std dev")
     p.append(
@@ -405,6 +405,13 @@ def _scatter_svg(rows):
             f'stroke="{col}" stroke-width="1.8" stroke-dasharray="6,4" opacity="0.7"/>'
         )
 
+    # Build offset map: experiments sharing a force value are spread apart by material
+    force_mats: dict[float, list[str]] = {}
+    for force, rp, mat, tid, rp_lo, rp_hi in pts:
+        force_mats.setdefault(force, [])
+        if mat not in force_mats[force]:
+            force_mats[force].append(mat)
+
     for (force, mat), gdata in stats.items():
         rp_data = gdata.get("resulting_p")
         if rp_data is None:
@@ -413,7 +420,10 @@ def _scatter_svg(rows):
         if n_rp < 2 or std_rp <= 0:
             continue
         col  = colors.get(mat, "#888")
-        xc   = xpx(force)
+        idx  = force_mats.get(force, [mat]).index(mat) if mat in force_mats.get(force, []) else 0
+        n_at = len(force_mats.get(force, [mat]))
+        x_off = (idx - (n_at - 1) / 2) * 11
+        xc   = xpx(force) + x_off
         yc   = ypx(mean_rp)
         y_hi = ypx(min(mean_rp + std_rp, y_max))
         y_lo = min(ypx(max(mean_rp - std_rp, 0.0)), PAD_T + PH)
@@ -426,19 +436,26 @@ def _scatter_svg(rows):
                  f'stroke="{col}" stroke-width="2"/>')
 
     R = 6
-    # Dashed grey method band per experiment (drawn before dots)
+    # Method band per experiment — colored by material so bars are attributable
     for force, rp, mat, tid, rp_lo, rp_hi in pts:
         if rp_lo is None or rp_hi is None:
             continue
-        xc = xpx(force)
+        col = colors.get(mat, "#888")
+        # slight x-offset when two materials share the same force value
+        idx = force_mats[force].index(mat)
+        x_off = (idx - (len(force_mats[force]) - 1) / 2) * 11
+        xc = xpx(force) + x_off
         y_lo = min(ypx(max(rp_lo, 0.0)), PAD_T + PH)
         y_hi = ypx(min(rp_hi, y_max))
         p.append(f'<line x1="{xc:.1f}" y1="{y_hi:.1f}" x2="{xc:.1f}" y2="{y_lo:.1f}" '
-                 f'stroke="#999" stroke-width="4" stroke-dasharray="4,3" opacity="0.5"/>')
+                 f'stroke="{col}" stroke-width="4" stroke-dasharray="4,3" opacity="0.45"/>')
 
     for force, rp, mat, tid, rp_lo, rp_hi in pts:
         col = colors.get(mat, "#888")
-        xc, yc = xpx(force), ypx(rp)
+        idx = force_mats.get(force, [mat]).index(mat) if mat in force_mats.get(force, []) else 0
+        n_at = len(force_mats.get(force, [mat]))
+        x_off = (idx - (n_at - 1) / 2) * 11
+        xc, yc = xpx(force) + x_off, ypx(rp)
         p.append(
             f'<circle cx="{xc:.1f}" cy="{yc:.1f}" r="{R}" '
             f'fill="{col}" opacity="0.85" stroke="white" stroke-width="1.5"/>'
@@ -446,7 +463,10 @@ def _scatter_svg(rows):
 
     for force, rp, mat, tid, rp_lo, rp_hi in pts:
         col = colors.get(mat, "#888")
-        xc, yc = xpx(force), ypx(rp)
+        idx = force_mats.get(force, [mat]).index(mat) if mat in force_mats.get(force, []) else 0
+        n_at = len(force_mats.get(force, [mat]))
+        x_off = (idx - (n_at - 1) / 2) * 11
+        xc, yc = xpx(force) + x_off, ypx(rp)
         if tid:
             lx_lbl = xc + R + 4 if xc < PAD_L + PW * 0.85 else xc - R - 4
             anchor = "start" if xc < PAD_L + PW * 0.85 else "end"
