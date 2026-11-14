@@ -446,15 +446,38 @@ def write_pptx(rows: list, outdir: Path) -> Path | None:
         geo_p  = row.get("geometric_contact_pressure_MPa")
         res_p  = row.get("resulting_contact_pressure_MPa")
         wear_a = row.get("wear_area_mm2")
+        fmin_p = row.get("wear_fraction_min")
+        fmax_p = row.get("wear_fraction_max")
+        a_nom_p  = row.get("ring_area_nominal_mm2")
+        force_p  = row.get("force_N")
+        a_anal_p = row.get("ring_area_analyzed_mm2") or 0.0
+
+        # Systematic uncertainty strings for PPTX
+        if fmin_p is not None and fmax_p is not None:
+            half_pp_p = (fmax_p - fmin_p) / 2 * 100
+            frac_str = f"{frac*100:.1f} %  ±{half_pp_p:.1f} pp"
+            wear_a_str_p = (f"{wear_a:.3f}  ±{(fmax_p - fmin_p)/2 * a_anal_p:.3f} mm²"
+                            if wear_a else "–")
+            if res_p and a_nom_p and force_p:
+                rp_lo_p = force_p / (fmax_p * a_nom_p)
+                rp_hi_p = force_p / (fmin_p * a_nom_p)
+                res_p_str_p = f"{res_p:.1f}  ±{(rp_hi_p - rp_lo_p)/2:.1f} MPa"
+            else:
+                res_p_str_p = f"{res_p:.1f} MPa" if res_p else "–"
+        else:
+            frac_str    = f"{frac*100:.1f} %"
+            wear_a_str_p = f"{wear_a:.3f} mm²" if wear_a else "–"
+            res_p_str_p  = f"{res_p:.1f} MPa"  if res_p  else "–"
+
         mx = 8.35
         lines = [
-            ("Wear fraction",        f"{frac*100:.1f} %"),
-            ("Wear area (analyzed)", f"{wear_a:.3f} mm²" if wear_a else "–"),
+            ("Wear fraction",        frac_str),
+            ("Wear area (analyzed)", wear_a_str_p),
             ("Geometric pressure",   f"{geo_p:.1f} MPa"  if geo_p  else "–"),
-            ("Resulting pressure",   f"{res_p:.1f} MPa"  if res_p  else "–"),
+            ("Resulting pressure",   res_p_str_p),
             ("Bore Ø measured",      f"{row.get('bore_diameter_measured_mm','–')} mm"),
-            ("Ring area nominal",    f"{row.get('ring_area_nominal_mm2','–')} mm²"),
-            ("Ring area analyzed",   f"{row.get('ring_area_analyzed_mm2','–')} mm²"),
+            ("Ring area nominal",    f"{a_nom_p or '–'} mm²"),
+            ("Ring area analyzed",   f"{a_anal_p or '–'} mm²"),
             ("µm/px",                str(row.get("um_per_px", "–"))),
             ("Threshold",            str(row.get("threshold", "–"))),
             ("Seam",                 row.get("seam_status", "–")),
