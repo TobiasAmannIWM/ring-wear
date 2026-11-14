@@ -88,3 +88,51 @@ _RING_FILES = [f"{s}{_REF_EXT}" for s in EXPECTED]
 def test_ranking(params, tmp_path):
     f = [run(REF / name, params, tmp_path)["wear_fraction"] for name in _RING_FILES]
     assert f[0] > f[1] > f[2] > f[3]
+
+
+# --------------------------------------------------------------------------- #
+# Phase 0.5 — method band tests
+# --------------------------------------------------------------------------- #
+_GRID_PATH = ROOT / "sensitivity_grid.json"
+
+
+@pytest.fixture(scope="module")
+def grid():
+    if not _GRID_PATH.exists():
+        pytest.skip("sensitivity_grid.json not found")
+    return rw.sensitivity.load_grid(_GRID_PATH)
+
+
+def _run_with_band(path, params, tmp_path, grid_tuple):
+    sens_grid, sens_best = grid_tuple
+    return rw.analyse(Path(path), params, Path(tmp_path), panel=False,
+                      font=rw.ImageFont.load_default(),
+                      sensitivity_grid=sens_grid, sensitivity_best=sens_best)
+
+
+@pytest.mark.parametrize("name", list(EXPECTED))
+def test_sensitivity_method_band(name, params, tmp_path, grid):
+    """wear_fraction_min ≤ wear_fraction ≤ wear_fraction_max for all reference images."""
+    res = _run_with_band(REF / f"{name}{_REF_EXT}", params, tmp_path, grid)
+    frac = res["wear_fraction"]
+    fmin = res["wear_fraction_min"]
+    fmax = res["wear_fraction_max"]
+    assert fmin is not None, "wear_fraction_min should not be None when grid is supplied"
+    assert fmax is not None, "wear_fraction_max should not be None when grid is supplied"
+    assert fmin <= frac + 1e-6, f"fmin={fmin} > frac={frac}"
+    assert fmax >= frac - 1e-6, f"fmax={fmax} < frac={frac}"
+    assert fmax >= fmin, f"fmax={fmax} < fmin={fmin}"
+    assert res["method_band_pp"] is not None
+    assert res["_fracs_grid"] is not None
+    assert len(res["_fracs_grid"]) == res.get("_n_combos", len(res["_fracs_grid"]))
+
+
+def test_sensitivity_ranking_stable(params, tmp_path, grid):
+    """Ranking T10 > T9 > T7 > T3 must hold across all grid combinations."""
+    rows = [_run_with_band(REF / name, params, tmp_path, grid)
+            for name in _RING_FILES]
+    result = rw.sensitivity.rank_stability(rows)
+    assert result["stable"], (
+        f"Ranking unstable for pairs: {result['unstable_pairs']} "
+        f"across {result['n_combos']} grid combinations"
+    )

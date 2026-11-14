@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.3.0 – 2026-11-14
+- **Methodenband (systematische Unsicherheit)**: neues Modul `ringwear/sensitivity.py`
+  mit einem 54-fachen Parameter-Grid-Sweep (k_sigma × tex_low_thr × tex_min_rel).
+  Bildmerkmale werden einmalig berechnet; nur die Entscheidungsstufe variiert.
+  Neue Ergebnisspalten: `wear_fraction_min`, `wear_fraction_max`, `method_band_pp`.
+  Das Methodenband wird GETRENNT vom inter-experimentellen ±std dargestellt — niemals
+  quadratisch kombiniert.
+- **Rang-Stabilität**: `sensitivity.rank_stability()` prüft paarweise, ob die
+  Rangordnung der Versuche (nach Verschleißanteil) bei allen 54 Kombinationen gleich
+  bleibt. Ausgabe: STABLE / UNSTABLE mit Liste der instabilen Paare.
+- **Balkendiagramm**: gestricheltes graues Rechteck für Methodenband-Min/Max;
+  solider Fehlerbalken für ±std bleibt separat.
+- **Streudiagramm**: pro Versuchspunkt gestrichelte graue vertikale Linie für das
+  Methodenband der resultierenden Kontaktpressung (rp_lo = F/(fmax·A), rp_hi = F/(fmin·A)).
+- **CLI**: `--sensitivity-grid JSON` und `--no-sensitivity`; Grid wird automatisch aus
+  `sensitivity_grid.json` neben dem Bildordner geladen, falls vorhanden.
+- **CSV-Filterfix**: `_`-Präfix-Schlüssel (intern, z. B. `_fracs_grid`, `_worn_abspath`)
+  werden nicht mehr in die CSV-Feldliste aufgenommen.
+- **`sensitivity_grid.json`** im Repo-Root als Standardkonfiguration angelegt
+  (Annahme — Bereiche nach Wiederholmessungen, Prompt 04, zu validieren).
+- Neue Tests: `test_sensitivity_method_band` (fmin ≤ frac ≤ fmax für alle 4
+  Referenzbilder) und `test_sensitivity_ranking_stable` (T10 > T9 > T7 > T3 in
+  allen 54 Kombinationen stabil).
+- **Monolith→Paket (Phase 0)**: `ring_wear.py` ist jetzt ein dünner Shim;
+  Logik in `ringwear/` (core.py, stats.py, report.py, cli.py).
+  Nullverhalten-Change: CSV-Diff = 0 für alle 9 Referenzbilder.
+
 ## 0.2.2 – 2026-11-14
 - **Regressionsgerade durch Ursprung** im Scatter-Plot (p = k·F):
   gestrichelt eingezeichnet, Formel und R²-Koeffizient in Legende (HTML) bzw.

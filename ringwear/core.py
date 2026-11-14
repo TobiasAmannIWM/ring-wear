@@ -305,7 +305,8 @@ def detect_seam(gs, ring, geo, upx, p: Params):
 # --------------------------------------------------------------------------- #
 # 5./6. Segmentierung
 # --------------------------------------------------------------------------- #
-def analyse(path: Path, p: Params, outdir: Path, panel=False, font=None):
+def analyse(path: Path, p: Params, outdir: Path, panel=False, font=None,
+            sensitivity_grid=None, sensitivity_best=None):
     parsed = _parse_stem(path.stem)
     force_N   = parsed["force_N"]
     nom_area  = parsed["area_mm2"] if parsed["area_mm2"] is not None else p.nominal_area_mm2
@@ -423,6 +424,19 @@ def analyse(path: Path, p: Params, outdir: Path, panel=False, font=None):
     sens = {f"frac_T{int(round(t*100))}": round(float(segment(t).sum() / ann_eval.sum()), 4)
             for t in p.sensitivity}
 
+    # Method band: systematic uncertainty from parameter grid sweep
+    _sens_result = None
+    if sensitivity_grid is not None:
+        from . import sensitivity as _sens_mod
+        _best = sensitivity_best if sensitivity_best is not None else _sens_mod.DEFAULT_BEST
+        _sens_result = _sens_mod.sweep(
+            rel=rel, tex_rel=tex_rel, loc=loc, rim=rim, ann_eval=ann_eval,
+            spread=spread, local_contrast_thr=p.local_contrast_thr,
+            k_open=k_open, k_close=k_close, min_px=min_px,
+            t_min=p.t_min, t_max=p.t_max,
+            grid=sensitivity_grid, best=_best,
+        )
+
     ring_area_nominal_mm2 = np.pi / 4 * (p.outer_diam_mm ** 2 - p.inner_diam_mm ** 2)
     ring_area_analyzed_mm2 = np.pi * ((r_in_lim * upx) ** 2 - ((rh + p.inner_margin_um / upx) * upx) ** 2) / 1e6
     bore_d_mm = 2 * ro * upx / 1000
@@ -453,6 +467,11 @@ def analyse(path: Path, p: Params, outdir: Path, panel=False, font=None):
         resulting_contact_pressure_MPa=_res_p,
         share_in_rim_band=round(radial_out, 3),
         **sens,
+        wear_fraction_min=(round(_sens_result.min_frac, 4) if _sens_result else None),
+        wear_fraction_max=(round(_sens_result.max_frac, 4) if _sens_result else None),
+        method_band_pp=(round((_sens_result.max_frac - _sens_result.min_frac) * 100, 2)
+                        if _sens_result else None),
+        _fracs_grid=(_sens_result.fracs if _sens_result else None),
         flags="; ".join(flags),
     )
 

@@ -13,6 +13,7 @@ from PIL import ImageFont
 from .core import Params, IMG_EXT, analyse
 from .report import write_excel, write_html, write_pptx
 from .stats import _find_new_probe, _copy_image_to_outdir
+from . import sensitivity as _sens
 
 
 def collect(inputs):
@@ -49,6 +50,11 @@ def main(argv=None):
     ap.add_argument("--keep-annotations", action="store_true", help="rote/blaue Markierungen nicht entfernen")
     ap.add_argument("--neu-dir", default=None,
                     help="Ordner mit Neuproben-Bildern (default: data/neu/ neben dem Input-Ordner)")
+    ap.add_argument("--sensitivity-grid", default=None, metavar="JSON",
+                    help="JSON-Datei mit Parameter-Grid für Methodenband "
+                         "(Standard: sensitivity_grid.json neben den Bildern, falls vorhanden)")
+    ap.add_argument("--no-sensitivity", action="store_true",
+                    help="Methodenband-Berechnung deaktivieren")
     a = ap.parse_args(argv)
 
     p = Params(bar_um=a.bar_um, um_per_px=a.um_per_px,
@@ -65,6 +71,36 @@ def main(argv=None):
     if not files:
         sys.exit("Keine Bilder gefunden.")
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
+
+    # Load sensitivity grid
+    sens_grid, sens_best = None, None
+    if not a.no_sensitivity:
+        grid_path = None
+        if a.sensitivity_grid:
+            grid_path = Path(a.sensitivity_grid)
+        else:
+            # Auto-discover: look for sensitivity_grid.json next to first input
+            first_parent = files[0].parent if files else Path(".")
+            candidates = [
+                first_parent / "sensitivity_grid.json",
+                first_parent.parent / "sensitivity_grid.json",
+                Path("sensitivity_grid.json"),
+            ]
+            for c in candidates:
+                if c.exists():
+                    grid_path = c
+                    break
+        if grid_path and grid_path.exists():
+            try:
+                sens_grid, sens_best = _sens.load_grid(grid_path)
+                n_combos = (len(sens_grid.get("k_sigma", [])) *
+                            len(sens_grid.get("tex_low_thr", [])) *
+                            len(sens_grid.get("tex_min_rel", [])))
+                print(f"[sensitivity] grid: {grid_path.name}  "
+                      f"{n_combos} combinations  "
+                      f"(assumption — ranges to be validated with repeat measurements)")
+            except Exception as e:
+                print(f"[sensitivity] WARNING: could not load {grid_path}: {e}")
 
     # Locate new-probe folder (default: data/neu/ sibling of first input folder)
     if a.neu_dir:
@@ -86,7 +122,8 @@ def main(argv=None):
     rows = []
     for f in files:
         try:
-            res = analyse(f, p, out, panel=a.panel, font=font)
+            res = analyse(f, p, out, panel=a.panel, font=font,
+                          sensitivity_grid=sens_grid, sensitivity_best=sens_best)
 
             res["_worn_abspath"] = str(f.resolve())
 
@@ -115,9 +152,18 @@ def main(argv=None):
             rows.append(dict(file=f.name, flags=f"ERROR: {e}"))
             print(f"{f.name:40s} ERROR: {e}")
 
+    # Rank stability report (requires sensitivity grid)
+    if sens_grid and len(rows) >= 2:
+        rs = _sens.rank_stability(rows)
+        if rs["n_combos"] > 0:
+            stable_str = "STABLE" if rs["stable"] else f"UNSTABLE ({rs['unstable_pairs']})"
+            print(f"\n[sensitivity] rank stability across {rs['n_combos']} combos: "
+                  f"{stable_str}  ({rs['n_pairs']} pairs checked)")
+
+    # Build CSV fieldnames — exclude internal (_-prefixed) keys to avoid list values in CSV
     keys = []
     for r_ in rows:
-        keys += [k for k in r_ if k not in keys]
+        keys += [k for k in r_ if k not in keys and not k.startswith("_")]
     with open(out / "results.csv", "w", newline="", encoding="utf-8-sig") as fh:
         w = csv.DictWriter(fh, fieldnames=keys, delimiter=";")
         w.writeheader()

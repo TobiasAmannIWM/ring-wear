@@ -8,27 +8,47 @@ from pathlib import Path
 
 
 def _group_stats(rows):
-    """Group rows by (force_N, material) and return mean ± std for each group."""
-    groups: dict = defaultdict(lambda: {"wa": [], "rp": []})
+    """Group rows by (force_N, material) and return mean ± std for each group.
+
+    wear_area tuple: (mean, std, n, band_min, band_max)
+      band_min / band_max = min/max across method band for all experiments in group.
+      band_min / band_max are None when no sensitivity grid was run.
+    resulting_p tuple: (mean, std, n)
+    """
+    groups: dict = defaultdict(lambda: {"wa": [], "rp": [], "wa_bmin": [], "wa_bmax": []})
     for row in rows:
         frac     = row.get("wear_fraction")
+        fmin     = row.get("wear_fraction_min")
+        fmax     = row.get("wear_fraction_max")
         force    = row.get("force_N")
         mat      = row.get("material")
         nom_area = row.get("ring_area_nominal_mm2")
         res_p    = row.get("resulting_contact_pressure_MPa")
         if not isinstance(frac, float) or force is None or not mat or not nom_area:
             continue
-        groups[(float(force), mat)]["wa"].append(frac * nom_area)
+        area = frac * nom_area
+        g = groups[(float(force), mat)]
+        g["wa"].append(area)
+        if isinstance(fmin, float):
+            g["wa_bmin"].append(fmin * nom_area)
+        if isinstance(fmax, float):
+            g["wa_bmax"].append(fmax * nom_area)
         if isinstance(res_p, float):
-            groups[(float(force), mat)]["rp"].append(res_p)
+            g["rp"].append(res_p)
     result = {}
     for key, data in groups.items():
         wa = data["wa"]
         rp = data["rp"]
+        bmin_list = data["wa_bmin"]
+        bmax_list = data["wa_bmax"]
+        band_min = min(bmin_list) if bmin_list else None
+        band_max = max(bmax_list) if bmax_list else None
         result[key] = {
             "wear_area":   (sum(wa)/len(wa),
                             _st.stdev(wa) if len(wa) >= 2 else 0.0,
-                            len(wa)),
+                            len(wa),
+                            band_min,
+                            band_max),
             "resulting_p": (sum(rp)/len(rp),
                             _st.stdev(rp) if len(rp) >= 2 else 0.0,
                             len(rp)) if rp else None,
@@ -85,7 +105,7 @@ def _copy_image_to_outdir(src: "Path", outdir: "Path", dest_name: str) -> "Path 
 # Bar-chart helpers (grouped by material × normal force)
 # --------------------------------------------------------------------------- #
 def _bar_chart_data(rows):
-    """Return (categories, series_dict) for a grouped bar chart with std."""
+    """Return (categories, series_dict) for a grouped bar chart with std and method band."""
     stats = _group_stats(rows)
     if not stats:
         return [], {}
@@ -100,22 +120,33 @@ def _bar_chart_data(rows):
 
 
 def _bar_chart_svg(rows):
-    """Grouped bar chart with mean bars and ±std error bars (HTML SVG)."""
+    """Grouped bar chart with mean bars, ±std error bars, and dashed method band (HTML SVG).
+
+    Dashed grey band: systematic uncertainty (method band min–max from parameter grid).
+    Solid error bar: random uncertainty (±1 std across repeated experiments, n≥2).
+    The two are shown SEPARATELY — never quadratically combined.
+    """
     categories, series_dict = _bar_chart_data(rows)
     if not categories or not series_dict:
         return ""
 
+    # 5-tuple: (mean, std, n, band_min, band_max)
     all_means = [tup[0] for vals in series_dict.values() for tup in vals if tup is not None]
     all_stds  = [tup[1] for vals in series_dict.values() for tup in vals if tup is not None]
+    all_bmaxs = [tup[4] for vals in series_dict.values() for tup in vals
+                 if tup is not None and tup[4] is not None]
     if not all_means:
         return ""
 
-    W, H = 820, 440
-    PAD_L, PAD_R, PAD_T, PAD_B = 72, 170, 55, 68
+    has_band = bool(all_bmaxs)
+
+    W, H = 820, 460
+    PAD_L, PAD_R, PAD_T, PAD_B = 72, 170, 55, 80
     PW = W - PAD_L - PAD_R
     PH = H - PAD_T - PAD_B
 
-    max_val = max(m + s for m, s in zip(all_means, all_stds)) * 1.25
+    max_top = max(all_bmaxs) if has_band else max(m + s for m, s in zip(all_means, all_stds))
+    max_val = max_top * 1.25
 
     n_cats = len(categories)
     n_ser  = len(series_dict)
@@ -144,13 +175,16 @@ def _bar_chart_svg(rows):
     p.append(f'<text x="{W//2}" y="32" text-anchor="middle" font-size="14" '
              f'font-weight="bold" fill="#1f4e79">'
              f'Resulting Wear Area by Material and Normal Force</text>')
+    subtitle = ("Dashed: method band min–max (systematic, assumption). "
+                "Solid: ±std (random, n≥2 repeats)." if has_band else
+                "Solid error bars: ±1 std dev across repeated experiments.")
     p.append(f'<text x="{W//2}" y="49" text-anchor="middle" font-size="10" fill="#888">'
-             f'Error bars: ±1 std dev across repeated experiments</text>')
+             f'{subtitle}</text>')
 
     yl_x, yl_y = 14, PAD_T + PH // 2
     p.append(f'<text x="{yl_x}" y="{yl_y}" text-anchor="middle" font-size="11" '
              f'fill="#555" transform="rotate(-90 {yl_x} {yl_y})">Wear area (mm²)</text>')
-    p.append(f'<text x="{PAD_L + PW//2}" y="{H - 6}" text-anchor="middle" '
+    p.append(f'<text x="{PAD_L + PW//2}" y="{H - 20}" text-anchor="middle" '
              f'font-size="11" fill="#555">Normal force (N)</text>')
 
     for tv in ticks:
@@ -178,12 +212,22 @@ def _bar_chart_svg(rows):
             tup = vals[ci]
             if tup is None:
                 continue
-            mean_v, std_v, n_v = tup
+            mean_v, std_v, n_v, band_min, band_max = tup
             bx    = bar_start + si * (bar_w + bar_gap)
             bcx   = bx + bar_w / 2
             by    = ypx(mean_v)
             bh    = PAD_T + PH - by
             col   = colors[si]
+
+            # Dashed method band (drawn first, behind the bar)
+            if band_min is not None and band_max is not None:
+                y_bmin = min(ypx(max(band_min, 0.0)), PAD_T + PH)
+                y_bmax = ypx(min(band_max, max_val))
+                band_hw = bar_w * 0.55
+                p.append(f'<rect x="{bcx - band_hw:.1f}" y="{y_bmax:.1f}" '
+                         f'width="{2 * band_hw:.1f}" height="{y_bmin - y_bmax:.1f}" '
+                         f'fill="none" stroke="#888" stroke-width="1.2" '
+                         f'stroke-dasharray="4,3" rx="1" opacity="0.8"/>')
 
             p.append(f'<rect x="{bx:.1f}" y="{by:.1f}" '
                      f'width="{bar_w:.1f}" height="{bh:.1f}" '
@@ -195,6 +239,7 @@ def _bar_chart_svg(rows):
                          f'text-anchor="middle" font-size="9" '
                          f'fill="{col}" font-weight="bold">{lbl}</text>')
 
+            # Solid ±std error bar (random uncertainty, n≥2 only)
             if n_v >= 2 and std_v > 0:
                 y_top = ypx(min(mean_v + std_v, max_val))
                 y_bot = min(ypx(max(mean_v - std_v, 0.0)), PAD_T + PH)
@@ -219,20 +264,39 @@ def _bar_chart_svg(rows):
         p.append(f'<text x="{lx + 22}" y="{yl + 12}" '
                  f'font-size="12" fill="#333">{mat}</text>')
 
+    if has_band:
+        yl = ly + n_ser * 24 + 12
+        p.append(f'<rect x="{lx}" y="{yl}" width="16" height="12" fill="none" '
+                 f'stroke="#888" stroke-dasharray="4,3" stroke-width="1.2" rx="1"/>')
+        p.append(f'<text x="{lx + 22}" y="{yl + 10}" font-size="10" fill="#666">'
+                 f'Method band</text>')
+
     p.append('</svg>')
     return "\n".join(p)
 
 
 def _scatter_svg(rows):
-    """Scatter plot with regression through origin, error bars, and formula."""
+    """Scatter plot with regression through origin, error bars, and method band.
+
+    For each experiment with a method band (wear_fraction_min/max), a vertical
+    dashed grey line shows the resulting-pressure range [rp_lo, rp_hi] where
+    rp_lo = F / (fmax × A_nom) and rp_hi = F / (fmin × A_nom).
+    """
     pts = []
     for row in rows:
-        force = row.get("force_N")
-        rp    = row.get("resulting_contact_pressure_MPa")
-        mat   = row.get("material")
-        tid   = row.get("test_id", "")
+        force    = row.get("force_N")
+        rp       = row.get("resulting_contact_pressure_MPa")
+        mat      = row.get("material")
+        tid      = row.get("test_id", "")
+        nom_area = row.get("ring_area_nominal_mm2")
+        fmin     = row.get("wear_fraction_min")
+        fmax     = row.get("wear_fraction_max")
         if isinstance(force, float) and isinstance(rp, float) and mat:
-            pts.append((force, rp, mat, tid))
+            rp_lo = (force / (fmax * nom_area)
+                     if isinstance(fmax, float) and fmax > 0 and nom_area else None)
+            rp_hi = (force / (fmin * nom_area)
+                     if isinstance(fmin, float) and fmin > 0 and nom_area else None)
+            pts.append((force, rp, mat, tid, rp_lo, rp_hi))
     if not pts:
         return ""
 
@@ -262,10 +326,12 @@ def _scatter_svg(rows):
 
     reg = {}
     for mat in mats:
-        mat_pts = [(f, rp) for f, rp, m, _ in pts if m == mat]
+        mat_pts = [(f, rp) for f, rp, m, _tid, _rlo, _rhi in pts if m == mat]
         k, r2 = _regression_through_origin(mat_pts)
         if k is not None:
             reg[mat] = (k, r2)
+
+    has_band = any(pt[4] is not None for pt in pts)
 
     p = []
     p.append(
@@ -280,9 +346,12 @@ def _scatter_svg(rows):
         f'font-weight="bold" fill="#1f4e79">'
         f'Resulting Contact Pressure vs. Normal Force</text>'
     )
+    scatter_sub = ("Dashed colored lines: regression. Grey dashed: method band. Solid bars: ±std."
+                   if has_band else
+                   "Dashed lines: regression through origin  ·  Error bars: ±1 std dev")
     p.append(
         f'<text x="{W//2}" y="49" text-anchor="middle" font-size="10" fill="#888">'
-        f'Dashed lines: regression through origin  ·  Error bars: ±1 std dev</text>'
+        f'{scatter_sub}</text>'
     )
 
     yl_x, yl_y = 14, PAD_T + PH // 2
@@ -357,7 +426,17 @@ def _scatter_svg(rows):
                  f'stroke="{col}" stroke-width="2"/>')
 
     R = 6
-    for force, rp, mat, tid in pts:
+    # Dashed grey method band per experiment (drawn before dots)
+    for force, rp, mat, tid, rp_lo, rp_hi in pts:
+        if rp_lo is None or rp_hi is None:
+            continue
+        xc = xpx(force)
+        y_lo = min(ypx(max(rp_lo, 0.0)), PAD_T + PH)
+        y_hi = ypx(min(rp_hi, y_max))
+        p.append(f'<line x1="{xc:.1f}" y1="{y_hi:.1f}" x2="{xc:.1f}" y2="{y_lo:.1f}" '
+                 f'stroke="#999" stroke-width="4" stroke-dasharray="4,3" opacity="0.5"/>')
+
+    for force, rp, mat, tid, rp_lo, rp_hi in pts:
         col = colors.get(mat, "#888")
         xc, yc = xpx(force), ypx(rp)
         p.append(
@@ -365,7 +444,7 @@ def _scatter_svg(rows):
             f'fill="{col}" opacity="0.85" stroke="white" stroke-width="1.5"/>'
         )
 
-    for force, rp, mat, tid in pts:
+    for force, rp, mat, tid, rp_lo, rp_hi in pts:
         col = colors.get(mat, "#888")
         xc, yc = xpx(force), ypx(rp)
         if tid:
