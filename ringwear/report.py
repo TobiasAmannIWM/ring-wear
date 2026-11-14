@@ -107,13 +107,18 @@ def write_html(rows: list, outdir: Path) -> Path:
         wear_a = row.get("wear_area_mm2")
         flags  = esc(row.get("flags") or "")
         flag_td = f'<span class="flag-warn">{flags}</span>' if flags and flags != "–" else "–"
+        # Systematic uncertainty suffix for summary table
+        fmin_s = row.get("wear_fraction_min")
+        fmax_s = row.get("wear_fraction_max")
+        unc_sfx = (f'<br><span style="color:#888;font-size:.82em">±{(fmax_s-fmin_s)/2*100:.1f} pp</span>'
+                   if fmin_s is not None and fmax_s is not None else "")
         sum_rows.append(
             f"<tr>"
             f"<td>{rank}</td>"
             f"<td>{esc(row.get('test_id'))}</td>"
             f"<td>{esc(row.get('material'))}</td>"
             f"<td>{esc(row.get('force_N'))}</td>"
-            f"<td class='{cls}'><b>{frac*100:.1f}</b></td>"
+            f"<td class='{cls}'><b>{frac*100:.1f}</b>{unc_sfx}</td>"
             f"<td>{f'{wear_a:.3f}' if wear_a else '–'}</td>"
             f"<td>{f'{geo_p:.1f}' if geo_p else '–'}</td>"
             f"<td>{f'{res_p:.1f}' if res_p else '–'}</td>"
@@ -158,14 +163,50 @@ def write_html(rows: list, outdir: Path) -> Path:
         wear_a = row.get("wear_area_mm2")
         flags  = row.get("flags", "") or ""
         flag_val = f'<span class="flag-warn">{esc(flags)}</span>' if flags else "–"
+
+        # Systematic uncertainty from the 54-combination sensitivity grid
+        fmin   = row.get("wear_fraction_min")
+        fmax   = row.get("wear_fraction_max")
+        a_nom  = row.get("ring_area_nominal_mm2")
+        force  = row.get("force_N")
+        _UNC   = '<span style="color:#888;font-size:.88em"> (systematic)</span>'
+
+        if fmin is not None and fmax is not None:
+            half_pp = (fmax - fmin) / 2 * 100
+            frac_unc = (f'<span class="{cls}"><b>{frac*100:.1f} %</b></span>'
+                        f' ± {half_pp:.1f} pp{_UNC}')
+        else:
+            frac_unc = f'<span class="{cls}"><b>{frac*100:.1f} %</b></span>'
+
+        if wear_a is not None and fmin is not None and fmax is not None:
+            area_analyzed = row.get("ring_area_analyzed_mm2") or 0.0
+            wear_a_hi = fmax * area_analyzed
+            wear_a_lo = fmin * area_analyzed
+            wear_a_half = (wear_a_hi - wear_a_lo) / 2
+            wear_a_str = f"{wear_a:.3f} mm² ± {wear_a_half:.3f} mm²{_UNC}"
+        elif wear_a is not None:
+            wear_a_str = f"{wear_a:.3f} mm²"
+        else:
+            wear_a_str = "–"
+
+        if res_p is not None and fmin is not None and fmax is not None and a_nom and force:
+            rp_lo = force / (fmax * a_nom)   # higher fmax → lower pressure
+            rp_hi = force / (fmin * a_nom)   # lower fmin  → higher pressure
+            rp_half = (rp_hi - rp_lo) / 2
+            res_p_str = f"{res_p:.1f} MPa ± {rp_half:.1f} MPa{_UNC}"
+        elif res_p is not None:
+            res_p_str = f"{res_p:.1f} MPa"
+        else:
+            res_p_str = "–"
+
         metrics = [
-            ("Wear fraction",         f'<span class="{cls}"><b>{frac*100:.1f} %</b></span>'),
-            ("Wear area (analyzed)",  f"{wear_a:.3f} mm²" if wear_a else "–"),
-            ("Ring area nominal",     f"{esc(row.get('ring_area_nominal_mm2'))} mm²"),
+            ("Wear fraction",         frac_unc),
+            ("Wear area (analyzed)",  wear_a_str),
+            ("Ring area nominal",     f"{esc(a_nom)} mm²"),
             ("Ring area analyzed",    f"{esc(row.get('ring_area_analyzed_mm2'))} mm²"),
             ("Bore Ø measured",       f"{esc(row.get('bore_diameter_measured_mm'))} mm"),
             ("Geometric pressure",    f"{geo_p:.1f} MPa"  if geo_p else "–"),
-            ("Resulting pressure",    f"{res_p:.1f} MPa"  if res_p else "–"),
+            ("Resulting pressure",    res_p_str),
             ("µm/px",                 esc(row.get("um_per_px"))),
             ("Threshold",             esc(row.get("threshold"))),
             ("Seam",                  esc(row.get("seam_status"))),
