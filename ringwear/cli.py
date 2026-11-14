@@ -159,13 +159,16 @@ def main(argv=None):
             stable_str = "STABLE" if rs["stable"] else f"UNSTABLE ({rs['unstable_pairs']})"
             print(f"\n[sensitivity] rank stability across {rs['n_combos']} combos: "
                   f"{stable_str}  ({rs['n_pairs']} pairs checked)")
+            for r_ in rows:
+                if "_fracs_grid" in r_:
+                    r_["rank_stable"] = rs["stable"]
 
     # Build CSV fieldnames — exclude internal (_-prefixed) keys to avoid list values in CSV
     keys = []
     for r_ in rows:
         keys += [k for k in r_ if k not in keys and not k.startswith("_")]
     with open(out / "results.csv", "w", newline="", encoding="utf-8-sig") as fh:
-        w = csv.DictWriter(fh, fieldnames=keys, delimiter=";")
+        w = csv.DictWriter(fh, fieldnames=keys, delimiter=";", extrasaction="ignore")
         w.writeheader()
         for r_ in rows:
             w.writerow({k: (str(v).replace(".", ",") if isinstance(v, float) else v) for k, v in r_.items()})
