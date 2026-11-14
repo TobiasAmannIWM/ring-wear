@@ -173,8 +173,10 @@ def write_html(rows: list, outdir: Path) -> Path:
 
         if fmin is not None and fmax is not None:
             half_pp = (fmax - fmin) / 2 * 100
+            _pp = ('<abbr title="percentage points — absolute difference, e.g. ±1 pp at 18 % '
+                   'means 17–19 %">pp</abbr>')
             frac_unc = (f'<span class="{cls}"><b>{frac*100:.1f} %</b></span>'
-                        f' ± {half_pp:.1f} pp{_UNC}')
+                        f' ± {half_pp:.1f} {_pp}{_UNC}')
         else:
             frac_unc = f'<span class="{cls}"><b>{frac*100:.1f} %</b></span>'
 
@@ -300,6 +302,11 @@ def write_html(rows: list, outdir: Path) -> Path:
 </tr></thead>
 <tbody>{"".join(sum_rows)}</tbody>
 </table>
+<p style="color:#888;font-size:.8em;margin-top:6px">
+  ± values in <em>Wear (%)</em> column: systematic uncertainty in
+  <abbr title="percentage points — absolute difference between two percentages, e.g. 18 % ± 1 pp means the true value lies between 17 % and 19 %">pp (percentage points)</abbr>,
+  derived from a 54-combination parameter grid sweep.
+</p>
 {chart_block}
 <h2>Details</h2>
 {"".join(cards)}
@@ -407,7 +414,11 @@ def write_pptx(rows: list, outdir: Path) -> Path | None:
         "6  Texture criterion — local std-dev map (~44 µm window); "
         "smooth zones (tex_rel < 0.42) classified as polished (worn).\n\n"
         "7  Wear fraction = worn pixels / evaluation pixels.  "
-        "Method band from 54-parameter grid sweep (systematic uncertainty, shown dashed)."
+        "Method band from 54-parameter grid sweep (systematic uncertainty, shown dashed).\n\n"
+        "Uncertainty notation used in this report:\n"
+        "  ±N pp  =  ±N percentage points  (systematic, from grid sweep)\n"
+        "             e.g. 18.4 % ± 1.0 pp  →  true value between 17.4 % and 19.4 %\n"
+        "  ±N mm² / ±N MPa  =  same systematic uncertainty propagated to area and pressure"
     )
     _txb(sl, 0.4, 0.75, 12.5, 6.5, method_text, sz=11, color=(40, 40, 40))
 
