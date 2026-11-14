@@ -1,5 +1,10 @@
 @echo off
 chcp 65001 >nul
+
+REM Change to the folder where this bat file lives (project root).
+REM Without this, Python cannot find the ringwear/ package.
+cd /d "%~dp0"
+
 echo Ring Wear Analysis
 echo ==================
 
