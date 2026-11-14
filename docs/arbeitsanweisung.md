@@ -28,23 +28,23 @@
 
 ## Schritt 2 — Welche Bilder aufnehmen
 
-### Pro Versuch (verschlissener Ring):
-
 | Aufnahme | Anzahl | Wann |
 |---|---|---|
-| Verschlissener Ring | **mindestens 1**, besser 3 | nach dem Versuch |
-| Neue Probe (unverschlissen, gleiches Material) | **1** | einmalig pro Material |
+| Verschlissener Ring | **3** (Wiederholungen r1/r2/r3) | nach dem Versuch |
+| Neue Probe (unverschlissen, gleiches Material) | **3** (Wiederholungen r1/r2/r3) | einmalig pro Materialkombination |
 
-### Wenn 3 Aufnahmen pro Ring gemacht werden (empfohlen):
-1. Ring einlegen → Bild aufnehmen
-2. Ring **kurz entnehmen und neu einlegen** → Bild aufnehmen
-3. Nochmals entnehmen und einlegen → Bild aufnehmen
+> Warum 3? Die drei Aufnahmen ermöglichen die Berechnung der Messgenauigkeit (s_r, LOD). Das gilt für verschlissene **und** neue Proben — beide müssen dreimal neu eingelegt und aufgenommen werden.
 
-> Das gibt eine Aussage über die Messgenauigkeit (wie sehr streut das Ergebnis durch Neupositionieren).
+### Ablauf pro Ring (verschlissen oder neu):
+1. Ring einlegen → Bild aufnehmen → `_r1`
+2. Ring **kurz entnehmen und neu einlegen** → Bild aufnehmen → `_r2`
+3. Nochmals entnehmen und einlegen → Bild aufnehmen → `_r3`
 
 ---
 
 ## Schritt 3 — Dateien benennen
+
+### Verschlissene Ringe
 
 **Schema:** `T{Nr}_{Material}_{Kraft}N_{Fläche}mm2_ring_r{Wiederholung}.jpg`
 
@@ -56,23 +56,26 @@
 | `{Fläche}` | Nennfläche in mm² | `43` |
 | `{Wiederholung}` | 1, 2 oder 3 (Aufnahme-Nr.) | `1` |
 
-**Beispiele:**
-
+**Beispiel:**
 ```
 T11_INC718_810N_43mm2_ring_r1.jpg   ← 1. Aufnahme, Versuch 11
 T11_INC718_810N_43mm2_ring_r2.jpg   ← 2. Aufnahme (neupositioniert)
 T11_INC718_810N_43mm2_ring_r3.jpg   ← 3. Aufnahme (neupositioniert)
 ```
 
-Wenn nur **eine** Aufnahme gemacht wird, einfach `_r1` weglassen:
+### Neue Proben (unverschlissen)
+
+**Schema:** `T{Liste}__{Material}_New_{Fläche}mm2_ring_r{Wiederholung}.jpg`
+
+Die `{Liste}` enthält alle Versuchsnummern, für die diese Neuprobe gilt (durch `_` getrennt):
+
 ```
-T11_INC718_810N_43mm2_ring.jpg
+T4_T5_T6_T7_T10_INC718_New_43mm2_ring_r1.jpg   ← 1. Aufnahme Neuprobe INC718
+T4_T5_T6_T7_T10_INC718_New_43mm2_ring_r2.jpg   ← 2. Aufnahme (neupositioniert)
+T4_T5_T6_T7_T10_INC718_New_43mm2_ring_r3.jpg   ← 3. Aufnahme (neupositioniert)
 ```
 
-**Neuprobe** (unvermessener Ring, gleiches Material):
-```
-INC718_neu.jpg   ← beliebiger Name, Ordner ist entscheidend (siehe Schritt 4)
-```
+> Der Code erkennt die Neuprobe anhand des Materialstrings `INC718` im Dateinamen — die Versuchsnummern dienen der **menschlichen Rückverfolgung**, nicht der Auswertungslogik.
 
 ---
 
@@ -81,17 +84,19 @@ INC718_neu.jpg   ← beliebiger Name, Ordner ist entscheidend (siehe Schritt 4)
 ```
 ring-wear/
   data/
-    worn/               ← HIER: alle verschlissenen Ringe (r1, r2, r3)
+    worn/                        ← verschlissene Ringe (jeweils r1/r2/r3)
       T11_INC718_810N_43mm2_ring_r1.jpg
       T11_INC718_810N_43mm2_ring_r2.jpg
       T11_INC718_810N_43mm2_ring_r3.jpg
-      (alle bisherigen T1–T10 bleiben hier liegen)
+      (alle bisherigen T1–T10 bleiben unverändert hier liegen)
 
-    neu/                ← HIER: Neuproben, sortiert nach Material
-      INC718/
-        INC718_neu.jpg
-      INC625M/
-        INC625M_neu.jpg
+    neu/                         ← Neuproben (ebenfalls r1/r2/r3)
+      T4_T5_T6_T7_T10_INC718_New_43mm2_ring_r1.jpg
+      T4_T5_T6_T7_T10_INC718_New_43mm2_ring_r2.jpg
+      T4_T5_T6_T7_T10_INC718_New_43mm2_ring_r3.jpg
+      T1_T2_T3_T9_INC625M_New_43mm2_ring_r1.jpg
+      T1_T2_T3_T9_INC625M_New_43mm2_ring_r2.jpg
+      T1_T2_T3_T9_INC625M_New_43mm2_ring_r3.jpg
 ```
 
 > ⚠️ Keine Dateien in `data/` umbenennen oder löschen, die schon dort liegen.
@@ -133,8 +138,8 @@ Danach öffnen sich `results.xlsx` und `results.html` automatisch.
 ## Zusammenfassung auf einen Blick
 
 ```
-Aufnehmen  →  Benennen          →  Ablegen              →  Doppelklick
-1–3 Bilder     T11_INC718_       data/worn/                run_analysis.bat
-pro Ring       810N_43mm2_
-               ring_r1.jpg
+Aufnehmen     →  Benennen                            →  Ablegen        →  Doppelklick
+3× verschlissen   T11_INC718_810N_43mm2_ring_r1.jpg     data/worn/        run_analysis.bat
+3× neue Probe     T4_T5_T6_T7_T10_INC718_New_          data/neu/
+                  43mm2_ring_r1.jpg
 ```
