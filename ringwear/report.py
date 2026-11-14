@@ -207,6 +207,10 @@ def write_html(rows: list, outdir: Path) -> Path:
         ".img-cell{flex:1 1 28%;min-width:180px;text-align:center}"
         ".img-cell img{width:100%;height:auto;border:1px solid #ddd;border-radius:4px}"
         ".img-caption{font-size:.78em;color:#555;margin-top:4px;font-style:italic}"
+        ".method-box{background:#f5f8fc;border-left:4px solid #1f4e79;border-radius:4px;"
+        "padding:16px 20px;margin-top:12px}"
+        ".method-box ol{margin:0;padding-left:1.4em}"
+        ".method-box li{margin-bottom:8px;line-height:1.5}"
         ".img-missing{background:#f0f0f0;border:1px dashed #bbb;border-radius:4px;"
         "padding:20px 8px;color:#999;font-size:.8em;min-height:80px;"
         "display:flex;align-items:center;justify-content:center;text-align:center}"
@@ -258,6 +262,32 @@ def write_html(rows: list, outdir: Path) -> Path:
 {chart_block}
 <h2>Details</h2>
 {"".join(cards)}
+
+<h2>Detection Method</h2>
+<div class="method-box">
+<ol>
+<li><strong>Scale calibration</strong> — white reference box (bottom-right corner) detected
+automatically. Pixel size derived from nominal bar length (500&nbsp;µm).</li>
+<li><strong>Ring geometry</strong> — inner bore and outer boundary located as dark connected
+regions. Evaluation mask = annular zone shrunk by 100&nbsp;µm on each side to exclude
+edge artefacts.</li>
+<li><strong>Seam removal</strong> — brightest arc excluded (±15°) to prevent weld or clamping
+reflection from being counted as wear.</li>
+<li><strong>Sector-normalised brightness (<em>rel</em>)</strong> — each pixel divided by the
+median brightness of its own half-ring. Cancels illumination gradients and vignetting.</li>
+<li><strong>Adaptive threshold</strong> T = 1 + k<sub>σ</sub> × σ<sub>rob</sub>
+(default k<sub>σ</sub> = 1.30, σ<sub>rob</sub> = IQR/1.35 of <em>rel</em>).
+Pixels with rel &gt; T are classified as bright (worn).</li>
+<li><strong>Texture criterion</strong> — local standard-deviation map (~44&nbsp;µm window).
+Smooth zones (tex_rel &lt; 0.42) classified as polished (worn). Final mask = union of
+brightness and texture criteria, morphologically cleaned.</li>
+<li><strong>Wear fraction</strong> = worn pixels / evaluation pixels.
+<strong>Method band</strong> from 54-combination parameter grid sweep (systematic uncertainty,
+shown as dashed rectangle in charts).</li>
+</ol>
+<p style="color:#888;font-size:.85em">
+Full technical description: <code>docs/method_description.md</code></p>
+</div>
 </body></html>"""
 
     path = outdir / "results.html"
@@ -316,6 +346,29 @@ def write_pptx(rows: list, outdir: Path) -> Path | None:
             f"  ·  {n_ok} of {len(rows)} images analysed")
     _txb(sl, 0.5, 3.5, 12.3, 0.7, sub, sz=18,
          color=(180, 215, 245), align=PP_ALIGN.CENTER)
+
+    # ── Method description slide
+    sl = prs.slides.add_slide(blank)
+    _bg(sl, 255, 255, 255)
+    _txb(sl, 0.4, 0.08, 12.5, 0.55, "Detection Method",
+         bold=True, sz=22, color=(31, 78, 121))
+    method_text = (
+        "1  Scale calibration — white reference box (bottom-right) detected automatically; "
+        "pixel size derived from nominal bar length (500 µm).\n\n"
+        "2  Ring geometry — inner bore and outer boundary located as dark connected regions; "
+        "evaluation mask = annular zone shrunk by 100 µm on each side.\n\n"
+        "3  Seam removal — brightest arc excluded (±15°) to prevent weld/clamp reflection "
+        "being counted as wear.\n\n"
+        "4  Sector-normalised brightness (rel) — each pixel divided by its half-ring median; "
+        "cancels illumination gradients and vignetting.\n\n"
+        "5  Adaptive threshold  T = 1 + kσ × σ_rob  (default kσ = 1.30); "
+        "pixels with rel > T classified as bright (worn).\n\n"
+        "6  Texture criterion — local std-dev map (~44 µm window); "
+        "smooth zones (tex_rel < 0.42) classified as polished (worn).\n\n"
+        "7  Wear fraction = worn pixels / evaluation pixels.  "
+        "Method band from 54-parameter grid sweep (systematic uncertainty, shown dashed)."
+    )
+    _txb(sl, 0.4, 0.75, 12.5, 6.5, method_text, sz=11, color=(40, 40, 40))
 
     # ── Per-experiment slides
     for row in rows:

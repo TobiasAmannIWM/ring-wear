@@ -229,11 +229,13 @@ class TestRepeatIntegration:
         not (Path(__file__).parent.parent / "data" / "synthetic_repeats").exists(),
         reason="data/synthetic_repeats not present",
     )
-    def test_nan_image_excluded(self, tmp_path):
+    def test_all_images_valid(self, tmp_path):
+        # All 3 synthetic repeat images are now valid (r2 was re-saved after
+        # the initial scale-bar failure was fixed by the user).
         result = R.run_repeat(self.SYNTHETIC_DIR, Params(), tmp_path)
-        # r2 is NaN → only 2 valid images
-        assert result.n_total == 2
-        assert any("NaN" in w for w in result.warnings)
+        assert result.n_total == 3
+        # No NaN exclusion warnings expected
+        assert not any("NaN" in w for w in result.warnings)
 
     @pytest.mark.skipif(
         not (Path(__file__).parent.parent / "data" / "synthetic_repeats").exists(),

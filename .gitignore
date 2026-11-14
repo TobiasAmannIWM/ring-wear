@@ -1,6 +1,9 @@
 # Output directories
 out/
 ring_wear_out/
+
+# Data folders (binary images — not tracked in git)
+data/synthetic_repeats/
 __pycache__/
 *.pyc
 *.pyo
