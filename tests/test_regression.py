@@ -13,7 +13,7 @@ from PIL import Image
 import ring_wear as rw
 
 ROOT = Path(__file__).resolve().parents[1]
-REF = ROOT / "data" / "reference"
+REF = ROOT / "data" / "worn"
 ANN = ROOT / "data" / "annotated"
 
 EXPECTED = {

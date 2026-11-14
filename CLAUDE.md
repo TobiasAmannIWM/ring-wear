@@ -17,7 +17,7 @@ Code-Bezeichner englisch.
 - **Nach jeder Änderung `pytest -q` ausführen.** Regressionstests dürfen nicht
   stillschweigend angepasst werden. Wenn sich Referenzwerte ändern müssen:
   begründen und in `CHANGELOG.md` dokumentieren.
-- Nach Änderungen Smoke-Test: `python ring_wear.py data/reference -o out --panel`
+- Nach Änderungen Smoke-Test: `python ring_wear.py data/worn -o out --panel`
   und die Overlays in `out/` ansehen (Read-Tool auf PNG).
 - Annahmen, Unsicherheiten und Grenzen explizit benennen. Keine Scheingenauigkeit:
   Ergebnisse sind Abschätzungen, keine Messungen.
@@ -105,7 +105,7 @@ Annotierte Bilder (`data/annotated`) müssen ±1 pp mit den sauberen Bildern üb
 ## Projektstruktur
 ```
 ring_wear.py            # aktueller Monolith (CLI + Pipeline) – Refactoring: prompts/01_refactoring.md
-data/reference/         # saubere Referenzbilder Ring 1–4 (nicht verändern)
+data/worn/         # saubere Referenzbilder Ring 1–4 (nicht verändern)
 data/annotated/         # dieselben Bilder mit roten Markierungen (Testfälle)
 data/neu/               # Bilder unverschlissener Neuproben (vom Nutzer zu füllen)
 tests/                  # pytest-Regressionstests
@@ -116,5 +116,5 @@ prompts/                # Arbeitsaufträge für Claude Code
 ```bash
 pip install -r requirements.txt
 pytest -q
-python ring_wear.py data/reference -o out --panel
+python ring_wear.py data/worn -o out --panel
 ```

@@ -16,6 +16,7 @@ from .stats import _find_new_probe, _copy_image_to_outdir
 from . import sensitivity as _sens
 from . import manifest as _manifest
 from . import repeat as _repeat
+from . import before_after as _ba
 
 
 def collect(inputs):
@@ -73,6 +74,26 @@ def _cmd_repeat(args) -> int:
     _repeat.print_report(result)
     csv_path = _repeat.write_repeat_csv(result, out)
     print(f"\nResults written to: {csv_path}")
+    return 0
+
+
+def _cmd_before_after(args) -> int:
+    folder = Path(args.folder)
+    if not folder.is_dir():
+        print(f"ERROR: '{folder}' is not a directory.", file=sys.stderr)
+        return 1
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+
+    p = Params()  # default params
+    result = _ba.run_before_after(folder, p, out)
+
+    _ba.print_report(result)
+    csv_path = _ba.write_before_after_csv(result, out)
+    print(f"\nResults written to: {csv_path}")
+
+    if result.n_paired == 0:
+        print("[INFO] No vor/nach pairs found — check manifest.csv or filename zustand-tokens.")
     return 0
 
 
@@ -146,9 +167,18 @@ def main(argv=None):
     p_rep.add_argument("--no-sensitivity", action="store_true",
                        help="Methodenband-Berechnung deaktivieren")
 
+    # ── before-after subcommand ──────────────────────────────────────────────
+    p_ba = sub.add_parser(
+        "before-after",
+        help="Vorher-Nachher-Vergleich: delta wear_fraction pro Probe",
+    )
+    p_ba.add_argument("folder", help="Ordner mit vor/nach-Bildern (und optional manifest.csv)")
+    p_ba.add_argument("-o", "--out", default="ring_wear_out/before_after",
+                      help="Ausgabeordner fuer Overlay-Bilder und before_after_report.csv")
+
     # ── analyse subcommand (default, positional) ─────────────────────────────
     # Positional args on the top-level parser for backwards compatibility:
-    # ring_wear.py data/reference/ -o out/
+    # ring_wear.py data/worn/ -o out/
     ap.add_argument("inputs", nargs="*", help="Bilddateien, Ordner oder Glob-Muster")
     ap.add_argument("--bar-um", type=float, default=500.0, help="Länge des Maßstabsbalkens in µm")
     ap.add_argument("--um-per-px", type=float, default=None, help="Pixelgröße fest vorgeben")
@@ -186,6 +216,9 @@ def main(argv=None):
 
     if a.command == "repeat":
         sys.exit(_cmd_repeat(a))
+
+    if a.command == "before-after":
+        sys.exit(_cmd_before_after(a))
 
     if not a.inputs:
         ap.print_help()

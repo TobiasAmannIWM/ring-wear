@@ -30,7 +30,7 @@ pip install -r requirements.txt
 python ring_wear.py bilder/ -o ergebnisse
 
 # Referenzbilder dieses Projekts
-python ring_wear.py data/reference -o out --panel
+python ring_wear.py data/worn -o out --panel
 
 # mit Variantenbildern (Schwellen +10/+15/+20/+25 %)
 python ring_wear.py bilder/ -o ergebnisse --panel

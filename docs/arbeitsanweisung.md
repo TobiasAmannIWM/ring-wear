@@ -81,7 +81,7 @@ INC718_neu.jpg   ← beliebiger Name, Ordner ist entscheidend (siehe Schritt 4)
 ```
 ring-wear/
   data/
-    reference/          ← HIER: alle verschlissenen Ringe (r1, r2, r3)
+    worn/               ← HIER: alle verschlissenen Ringe (r1, r2, r3)
       T11_INC718_810N_43mm2_ring_r1.jpg
       T11_INC718_810N_43mm2_ring_r2.jpg
       T11_INC718_810N_43mm2_ring_r3.jpg
@@ -102,23 +102,20 @@ ring-wear/
 
 Doppelklick auf `run_analysis.bat` im Hauptordner.
 
-Das Skript läuft automatisch durch und öffnet danach `results.xlsx` und `results.html`.
+Das Skript läuft automatisch durch:
+1. Alle verschlissenen Ringe in `data/worn/` werden ausgewertet
+2. Falls mehrere Aufnahmen pro Ring vorhanden sind (r1, r2, r3), wird die Wiederholbarkeit **automatisch mitberechnet**
 
-**Fertig.** Alle Ergebnisse (Excel, HTML, PowerPoint) liegen im Ordner `ring_wear_out/`.
+Danach öffnen sich `results.xlsx` und `results.html` automatisch.
 
----
+**Fertig.** Alle Ergebnisse liegen im Ordner `ring_wear_out/`:
 
-## Schritt 6 — Wiederholbarkeitsanalyse (optional, wenn 3 Aufnahmen gemacht wurden)
-
-Wenn du 3 Aufnahmen pro Ring gemacht hast, kann zusätzlich die Messgenauigkeit berechnet werden.
-
-Öffne eine Eingabeaufforderung im Ordner `ring-wear/` und tippe:
-
-```
-run_repeat.bat
-```
-
-*(Diese Datei wird noch erstellt — bitte beim Verantwortlichen melden wenn Wiederholmessungen vorliegen.)*
+| Datei | Inhalt |
+|---|---|
+| `results.xlsx` | Verschleißfläche aller Ringe |
+| `results.html` | Bericht mit Bildern |
+| `results.pptx` | PowerPoint-Präsentation |
+| `repeat_report.csv` | Wiederholbarkeit (nur wenn r1/r2/r3 vorhanden) |
 
 ---
 
@@ -137,7 +134,7 @@ run_repeat.bat
 
 ```
 Aufnehmen  →  Benennen          →  Ablegen              →  Doppelklick
-1–3 Bilder     T11_INC718_       data/reference/           run_analysis.bat
+1–3 Bilder     T11_INC718_       data/worn/                run_analysis.bat
 pro Ring       810N_43mm2_
                ring_r1.jpg
 ```

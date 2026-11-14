@@ -5,6 +5,7 @@ from .cli import main
 from . import sensitivity
 from . import manifest
 from . import repeat
+from . import before_after
 from PIL import ImageFont
 
 __all__ = [
