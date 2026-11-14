@@ -15,6 +15,7 @@ from .report import write_excel, write_html, write_pptx
 from .stats import _find_new_probe, _copy_image_to_outdir
 from . import sensitivity as _sens
 from . import manifest as _manifest
+from . import repeat as _repeat
 
 
 def collect(inputs):
@@ -28,6 +29,51 @@ def collect(inputs):
         else:
             files += sorted(Path().glob(s))
     return files
+
+
+def _cmd_repeat(args) -> int:
+    folder = Path(args.folder)
+    if not folder.is_dir():
+        print(f"ERROR: '{folder}' is not a directory.", file=sys.stderr)
+        return 1
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+
+    neu_dir = Path(args.neu_dir) if args.neu_dir else None
+
+    # Load sensitivity grid (same auto-discovery as main analysis)
+    sens_grid, sens_best = None, None
+    if not args.no_sensitivity:
+        candidates = [
+            folder / "sensitivity_grid.json",
+            folder.parent / "sensitivity_grid.json",
+            Path("sensitivity_grid.json"),
+        ]
+        for c in candidates:
+            if c.exists():
+                try:
+                    sens_grid, sens_best = _sens.load_grid(c)
+                    n_combos = (len(sens_grid.get("k_sigma", [])) *
+                                len(sens_grid.get("tex_low_thr", [])) *
+                                len(sens_grid.get("tex_min_rel", [])))
+                    print(f"[sensitivity] grid: {c.name}  {n_combos} combinations")
+                except Exception as e:
+                    print(f"[sensitivity] WARNING: could not load {c}: {e}")
+                break
+
+    p = Params()  # default params (k_sigma=1.30, adaptive)
+
+    result = _repeat.run_repeat(
+        folder, p, out,
+        sensitivity_grid=sens_grid,
+        sensitivity_best=sens_best,
+        neu_folder=neu_dir,
+    )
+
+    _repeat.print_report(result)
+    csv_path = _repeat.write_repeat_csv(result, out)
+    print(f"\nResults written to: {csv_path}")
+    return 0
 
 
 def _cmd_manifest_init(args) -> int:
@@ -87,6 +133,19 @@ def main(argv=None):
     p_val = mani_sub.add_parser("validate", help="Manifest auf Fehler prüfen")
     p_val.add_argument("folder", help="Ordner mit manifest.csv")
 
+    # ── repeat subcommand ────────────────────────────────────────────────────
+    p_rep = sub.add_parser(
+        "repeat",
+        help="Wiederholbarkeitsanalyse: s_r, s_p, ICC, LOD",
+    )
+    p_rep.add_argument("folder", help="Ordner mit Wiederholungsbildern und manifest.csv")
+    p_rep.add_argument("-o", "--out", default="ring_wear_out/repeat",
+                       help="Ausgabeordner für Overlay-Bilder und repeat_summary.csv")
+    p_rep.add_argument("--neu-dir", default=None,
+                       help="Ordner mit Neuproben-Bildern (zustand=neu) für f0-Schätzung")
+    p_rep.add_argument("--no-sensitivity", action="store_true",
+                       help="Methodenband-Berechnung deaktivieren")
+
     # ── analyse subcommand (default, positional) ─────────────────────────────
     # Positional args on the top-level parser for backwards compatibility:
     # ring_wear.py data/reference/ -o out/
@@ -124,6 +183,9 @@ def main(argv=None):
         else:
             p_mani.print_help()
             sys.exit(1)
+
+    if a.command == "repeat":
+        sys.exit(_cmd_repeat(a))
 
     if not a.inputs:
         ap.print_help()

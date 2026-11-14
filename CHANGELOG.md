@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.5.0 – 2026-11-14
+- **Phase 2 — Wiederholbarkeitsanalyse** (neues Modul `ringwear/repeat.py`):
+  - `run_repeat(folder, params, out)`: analysiert alle Bilder im Ordner,
+    gruppiert via Manifest nach Probe, berechnet Varianzkomponenten.
+  - `s_r` (Wiederholstandardabweichung, gepoolt ueber alle Proben),
+    `s_p` (Fertigungsstreuung, nicht negativ; Clamp auf 0 mit Warnung),
+    `ICC` (Intraklassen-Korrelation).
+  - Nachweisgrenze: `LOD(k=1)` und `LOD(k=3)` via t(0.95, df)*sqrt(s_p^2 + s_r^2/k).
+  - NaN-Robustheit: Bilder mit fehlgeschlagener Ringdetektion (wear_fraction=NaN)
+    werden mit Warnung ausgeschlossen, kein Absturz.
+  - `write_repeat_csv()`: Ergebnis-CSV mit Dezimalkomma/Semikolon (Excel-DE).
+- **CLI-Subcommand `repeat`**:
+  - `ring_wear.py repeat <ordner> -o <out>` -- Wiederholbarkeitsanalyse ausfuehren
+  - `--neu-dir <ordner>` fuer f0-Schaetzung aus Neuprobenbildern
+  - `--no-sensitivity` um Methodenband zu deaktivieren
+- **Manifest: `_r{N}`-Suffix in altem Dateinamen-Schema** (`T{N}_..._ring_r2.jpg`)
+  wird jetzt als `wiederholung=2` erkannt, nicht mehr als unbekanntes Muster.
+- 18 neue Tests in `tests/test_repeat.py` (Varianzkomponenten synthetisch,
+  NaN-Ausschluss, Manifest-Roundtrip, CLI). Gesamtzahl: 58 Tests.
+
 ## 0.4.0 – 2026-11-14
 - **Phase 1 — Manifest-Infrastruktur** (neues Modul `ringwear/manifest.py`):
   - Datenmodell `ManifestRow` (probe, zustand ∈ {neu, vor, nach}, wiederholung,

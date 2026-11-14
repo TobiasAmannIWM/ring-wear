@@ -4,6 +4,7 @@ from .report import write_excel, write_html, write_pptx
 from .cli import main
 from . import sensitivity
 from . import manifest
+from . import repeat
 from PIL import ImageFont
 
 __all__ = [

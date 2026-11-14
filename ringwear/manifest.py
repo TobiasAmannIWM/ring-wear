@@ -33,9 +33,9 @@ _RE_NEW_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# Old convention: T{N}_{Material}_{Force}N_{Area}mm2_ring  (single measurement)
+# Old convention: T{N}_{Material}_{Force}N_{Area}mm2_ring[_r{rep}]  (optional repeat suffix)
 _RE_OLD_PATTERN = re.compile(
-    r"^(?P<probe>T\d+)_(?P<material>[^_]+)_(?P<force>\d+)N_(?P<area>\d+)mm2_ring$",
+    r"^(?P<probe>T\d+)_(?P<material>[^_]+)_(?P<force>\d+)N_(?P<area>\d+)mm2_ring(?:_r(?P<rep>\d+))?$",
     re.IGNORECASE,
 )
 
@@ -147,11 +147,12 @@ def _parse_stem(stem: str, filename: str) -> tuple[ManifestRow, list[str]]:
 
     m = _RE_OLD_PATTERN.match(stem)
     if m:
+        rep = int(m.group("rep")) if m.group("rep") else 1
         return ManifestRow(
             datei=filename,
             probe=m.group("probe"),
             zustand="nach",   # worn ring → assumed post-test
-            wiederholung=1,
+            wiederholung=rep,
             winkel_deg=0.0,
             sitzung="",
             bemerkung="old_convention",
