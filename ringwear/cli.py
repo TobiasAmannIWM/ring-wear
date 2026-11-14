@@ -134,51 +134,60 @@ def _cmd_manifest_validate(args) -> int:
     return 0
 
 
+def _dispatch_subcommand(cmd: str, rest: list[str]) -> int:
+    """Route subcommands to their own ArgumentParsers (no shared parser with positional args)."""
+    if cmd == "manifest":
+        ap = argparse.ArgumentParser(prog="ring_wear.py manifest")
+        mani_sub = ap.add_subparsers(dest="manifest_action")
+        p_init = mani_sub.add_parser("init", help="Manifest aus Dateinamen generieren")
+        p_init.add_argument("folder")
+        p_val = mani_sub.add_parser("validate", help="Manifest prüfen")
+        p_val.add_argument("folder")
+        a = ap.parse_args(rest)
+        if a.manifest_action == "init":
+            return _cmd_manifest_init(a)
+        elif a.manifest_action == "validate":
+            return _cmd_manifest_validate(a)
+        else:
+            ap.print_help()
+            return 1
+
+    if cmd == "repeat":
+        ap = argparse.ArgumentParser(prog="ring_wear.py repeat")
+        ap.add_argument("folder")
+        ap.add_argument("-o", "--out", default="ring_wear_out/repeat")
+        ap.add_argument("--neu-dir", default=None)
+        ap.add_argument("--no-sensitivity", action="store_true")
+        a = ap.parse_args(rest)
+        return _cmd_repeat(a)
+
+    if cmd == "before-after":
+        ap = argparse.ArgumentParser(prog="ring_wear.py before-after")
+        ap.add_argument("folder")
+        ap.add_argument("-o", "--out", default="ring_wear_out/before_after")
+        a = ap.parse_args(rest)
+        return _cmd_before_after(a)
+
+    print(f"Unknown subcommand: {cmd}", file=sys.stderr)
+    return 1
+
+
 def main(argv=None):
+    # Manual dispatch BEFORE argparse to avoid Python 3.9+ subparser ambiguity:
+    # when positional args (file paths) are mixed with subparsers, argparse
+    # tries to match the first path as a subcommand choice and fails.
+    if argv is None:
+        argv = sys.argv[1:]
+
+    _SUBCOMMANDS = {"manifest", "repeat", "before-after"}
+    if argv and argv[0] in _SUBCOMMANDS:
+        sys.exit(_dispatch_subcommand(argv[0], argv[1:]))
+
+    # ── Main analysis (no subparsers — pure positional) ──────────────────────
     ap = argparse.ArgumentParser(
-        description="Abschätzung heller Verschleißflächen auf Ring-Stirnflächen",
+        description="Ring wear analysis. Subcommands: manifest, repeat, before-after",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    sub = ap.add_subparsers(dest="command")
-
-    # ── manifest subcommand ──────────────────────────────────────────────────
-    p_mani = sub.add_parser("manifest", help="Manifest-Verwaltung für Wiederholmessungen")
-    mani_sub = p_mani.add_subparsers(dest="manifest_action")
-
-    p_init = mani_sub.add_parser(
-        "init",
-        help="Manifest aus Dateinamen im Ordner generieren (zum Nachbearbeiten)",
-    )
-    p_init.add_argument("folder", help="Ordner mit Bilddateien")
-
-    p_val = mani_sub.add_parser("validate", help="Manifest auf Fehler prüfen")
-    p_val.add_argument("folder", help="Ordner mit manifest.csv")
-
-    # ── repeat subcommand ────────────────────────────────────────────────────
-    p_rep = sub.add_parser(
-        "repeat",
-        help="Wiederholbarkeitsanalyse: s_r, s_p, ICC, LOD",
-    )
-    p_rep.add_argument("folder", help="Ordner mit Wiederholungsbildern und manifest.csv")
-    p_rep.add_argument("-o", "--out", default="ring_wear_out/repeat",
-                       help="Ausgabeordner für Overlay-Bilder und repeat_summary.csv")
-    p_rep.add_argument("--neu-dir", default=None,
-                       help="Ordner mit Neuproben-Bildern (zustand=neu) für f0-Schätzung")
-    p_rep.add_argument("--no-sensitivity", action="store_true",
-                       help="Methodenband-Berechnung deaktivieren")
-
-    # ── before-after subcommand ──────────────────────────────────────────────
-    p_ba = sub.add_parser(
-        "before-after",
-        help="Vorher-Nachher-Vergleich: delta wear_fraction pro Probe",
-    )
-    p_ba.add_argument("folder", help="Ordner mit vor/nach-Bildern (und optional manifest.csv)")
-    p_ba.add_argument("-o", "--out", default="ring_wear_out/before_after",
-                      help="Ausgabeordner fuer Overlay-Bilder und before_after_report.csv")
-
-    # ── analyse subcommand (default, positional) ─────────────────────────────
-    # Positional args on the top-level parser for backwards compatibility:
-    # ring_wear.py data/worn/ -o out/
     ap.add_argument("inputs", nargs="*", help="Bilddateien, Ordner oder Glob-Muster")
     ap.add_argument("--bar-um", type=float, default=500.0, help="Länge des Maßstabsbalkens in µm")
     ap.add_argument("--um-per-px", type=float, default=None, help="Pixelgröße fest vorgeben")
@@ -191,34 +200,15 @@ def main(argv=None):
                     help="Naht fest bei cx - offset·r_außen (setzt --seam prior)")
     ap.add_argument("--inner-margin-um", type=float, default=100.0)
     ap.add_argument("--outer-margin-um", type=float, default=100.0)
-    ap.add_argument("--inner-diam-mm", type=float, default=3.0, help="nominaler Innendurchmesser / Bohrung (mm)")
-    ap.add_argument("--outer-diam-mm", type=float, default=8.0, help="nominaler Außendurchmesser Ring (mm)")
-    ap.add_argument("--panel", action="store_true", help="Variantenbild mit 4 Schwellen erzeugen")
-    ap.add_argument("--keep-annotations", action="store_true", help="rote/blaue Markierungen nicht entfernen")
-    ap.add_argument("--neu-dir", default=None,
-                    help="Ordner mit Neuproben-Bildern (default: data/neu/ neben dem Input-Ordner)")
-    ap.add_argument("--sensitivity-grid", default=None, metavar="JSON",
-                    help="JSON-Datei mit Parameter-Grid für Methodenband "
-                         "(Standard: sensitivity_grid.json neben den Bildern, falls vorhanden)")
-    ap.add_argument("--no-sensitivity", action="store_true",
-                    help="Methodenband-Berechnung deaktivieren")
+    ap.add_argument("--inner-diam-mm", type=float, default=3.0)
+    ap.add_argument("--outer-diam-mm", type=float, default=8.0)
+    ap.add_argument("--panel", action="store_true")
+    ap.add_argument("--keep-annotations", action="store_true")
+    ap.add_argument("--neu-dir", default=None)
+    ap.add_argument("-o", "--out", default="ring_wear_out")
+    ap.add_argument("--sensitivity-grid", default=None, metavar="JSON")
+    ap.add_argument("--no-sensitivity", action="store_true")
     a = ap.parse_args(argv)
-
-    # ── Dispatch subcommands ─────────────────────────────────────────────────
-    if a.command == "manifest":
-        if a.manifest_action == "init":
-            sys.exit(_cmd_manifest_init(a))
-        elif a.manifest_action == "validate":
-            sys.exit(_cmd_manifest_validate(a))
-        else:
-            p_mani.print_help()
-            sys.exit(1)
-
-    if a.command == "repeat":
-        sys.exit(_cmd_repeat(a))
-
-    if a.command == "before-after":
-        sys.exit(_cmd_before_after(a))
 
     if not a.inputs:
         ap.print_help()
