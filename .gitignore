@@ -1,8 +1,23 @@
-# Output directories
+# Output directories (generated results — never commit)
 out/
+out_*/
 ring_wear_out/
 
-# Data folders (binary images — not tracked in git)
+# Measurement images and result files in data/ — never commit
+data/worn/*.jpg
+data/worn/*.jpeg
+data/worn/*.tif
+data/worn/*.tiff
+data/worn/*.png
+data/neu/**/*.jpg
+data/neu/**/*.jpeg
+data/neu/**/*.tif
+data/neu/**/*.tiff
+data/neu/**/*.png
+data/annotated/*.jpg
+data/annotated/*.png
+data/annotated/*.tif
+
 data/synthetic_repeats/
 __pycache__/
 *.pyc
