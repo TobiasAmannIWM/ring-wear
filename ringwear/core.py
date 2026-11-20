@@ -233,17 +233,33 @@ def detect_geometry(gray, excl):
     r_blob = np.sqrt(st[best, cv2.CC_STAT_AREA] / np.pi)
 
     def scan(cx, cy, lo, hi, mode):
+        """Scan radial rays and return edge points.
+
+        Rays that partially extend outside the image are clipped to their
+        in-bounds portion instead of being skipped entirely.  This lets
+        the outer-ring boundary be detected even when the ring nearly fills
+        the frame.
+        """
         X, Y = [], []
+        min_pts = 2 if mode == "grad" else 1
         for th in np.linspace(0, 2 * np.pi, 360, endpoint=False):
             R = np.arange(lo, hi, 0.5)
             xs, ys = cx + R * np.cos(th), cy + R * np.sin(th)
-            if (xs < 1).any() or (xs > W - 2).any() or (ys < 1).any() or (ys > H - 2).any():
+            # Clip ray to in-bounds pixels instead of discarding the whole ray
+            mask = (xs >= 1) & (xs <= W - 2) & (ys >= 1) & (ys <= H - 2)
+            if mask.sum() < min_pts:
                 continue
+            xs, ys = xs[mask], ys[mask]
             xi, yi = xs.astype(int), ys.astype(int)
             if excl[yi, xi].mean() > 0.5:
                 continue
             v = g[yi, xi]
-            i = np.argmin(v) if mode == "min" else np.argmax(np.diff(v))
+            if mode == "grad":
+                if len(v) < 2:
+                    continue
+                i = np.argmax(np.diff(v))
+            else:
+                i = np.argmin(v)
             X.append(xs[i]); Y.append(ys[i])
         return np.array(X), np.array(Y)
 
@@ -251,12 +267,18 @@ def detect_geometry(gray, excl):
     if len(X) < 60:
         raise RuntimeError("Bohrungskante nicht erfassbar")
     hole, hole_rms, _ = robust_circle(X, Y)
+
     X, Y = scan(hole[0], hole[1], 2.3 * hole[2], 3.3 * hole[2], "min")
+    ring_clipped = False
     if len(X) < 60:
-        raise RuntimeError("Äußere Bildgrenze nicht erfassbar (Ring angeschnitten?)")
+        # Fallback: wider search range for rings close to the frame edge
+        X, Y = scan(hole[0], hole[1], 2.0 * hole[2], 3.8 * hole[2], "min")
+        ring_clipped = True
+    if len(X) < 20:
+        raise RuntimeError("Äußere Bildgrenze nicht erfassbar – Ring zu weit angeschnitten")
     outer, outer_rms, n_out = robust_circle(X, Y)
     return dict(hole=hole, outer=outer, hole_rms=hole_rms, outer_rms=outer_rms,
-                outer_points=n_out)
+                outer_points=n_out, ring_clipped=ring_clipped)
 
 
 # --------------------------------------------------------------------------- #
@@ -333,6 +355,8 @@ def analyse(path: Path, p: Params, outdir: Path, panel=False, font=None,
     geo = detect_geometry(gray, excl)
     cx, cy, ro = geo["outer"]
     hx, hy, rh = geo["hole"]
+    if geo.get("ring_clipped"):
+        flags.append("outer boundary: fallback range used (ring near frame edge)")
     if geo["outer_rms"] > 3 or geo["hole_rms"] > 3:
         flags.append("circle fit inaccurate")
     if np.hypot(cx - hx, cy - hy) > 0.06 * ro:

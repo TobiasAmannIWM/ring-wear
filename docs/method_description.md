@@ -25,6 +25,15 @@ annular evaluation mask is constructed by shrinking both boundaries by a
 user-defined margin (default: 100 µm on each side) to exclude edge
 artefacts.
 
+If the ring is positioned close to the frame edge, radial scan rays are
+automatically clipped to the in-bounds image area instead of being
+discarded. A wider fallback scan range (2.0–3.8× bore radius instead of
+the default 2.3–3.3×) is used when fewer than 60 valid boundary points
+are found in the primary scan. Images where the fallback was needed are
+flagged with `"outer boundary: fallback range used (ring near frame
+edge)"` in the results CSV. If fewer than 20 boundary points remain
+after clipping, the image is skipped with an error.
+
 ### 3. Seam Removal
 The ring is mounted with a visible seam (weld or clamping line) that
 causes a localised bright reflection independent of wear. The seam is
