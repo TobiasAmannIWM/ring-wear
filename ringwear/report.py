@@ -82,8 +82,20 @@ def write_excel(rows: list, outdir: Path) -> Path | None:
 # --------------------------------------------------------------------------- #
 # HTML report (stdlib only – no extra dependencies)
 # --------------------------------------------------------------------------- #
+def _img_b64_src(path: "Path | None") -> "str | None":
+    """Return a base64 data URI for *path*, or None if the file is missing."""
+    import base64
+    if path is None or not Path(path).exists():
+        return None
+    p = Path(path)
+    mime_map = {".jpg": "jpeg", ".jpeg": "jpeg", ".png": "png",
+                ".tif": "tiff", ".tiff": "tiff", ".bmp": "bmp"}
+    mime = mime_map.get(p.suffix.lower(), "png")
+    return f"data:image/{mime};base64,{base64.b64encode(p.read_bytes()).decode()}"
+
+
 def write_html(rows: list, outdir: Path) -> Path:
-    """Single-file HTML report; overlay images loaded via relative path."""
+    """Standalone HTML report — all images embedded as base64 data URIs."""
     import datetime
     import html as _html
 
@@ -158,9 +170,9 @@ def write_html(rows: list, outdir: Path) -> Path:
         worn_path  = row.get("_worn_outdir")
         ov_file    = f"{stem}_overlay.png"
         def _img(fname, alt, caption):
-            exists = fname and (outdir / fname).exists()
-            tag = (f'<img src="{esc(fname)}" alt="{esc(alt)}">'
-                   if exists else f'<div class="img-missing">{esc(alt)}<br>not found</div>')
+            src = _img_b64_src(outdir / fname if fname else None)
+            tag = (f'<img src="{src}" alt="{esc(alt)}">'
+                   if src else f'<div class="img-missing">{esc(alt)}<br>not found</div>')
             return (f'<div class="img-cell">{tag}'
                     f'<div class="img-caption">{caption}</div></div>')
         img_block = (
