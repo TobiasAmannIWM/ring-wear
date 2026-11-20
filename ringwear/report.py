@@ -1,6 +1,7 @@
 """ringwear.report — Excel, HTML, and PPTX report writers."""
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from .stats import (_bar_chart_data, _bar_chart_svg, _regression_through_origin,
@@ -31,6 +32,7 @@ def write_excel(rows: list, outdir: Path) -> Path | None:
         "Bore diameter - measured (mm)",
         "Wear fraction (%)", "Wear area (mm²)",
         "Geometric contact pressure (MPa)", "Resulting contact pressure (MPa)",
+        "Repeat n", "Repeat std (pp)",
         "µm/px", "Threshold", "Seam status", "Flags",
     ]
     hfill = PatternFill("solid", fgColor="1F4E79")
@@ -56,6 +58,10 @@ def write_excel(rows: list, outdir: Path) -> Path | None:
             row.get("wear_area_mm2", ""),
             row.get("geometric_contact_pressure_MPa", ""),
             row.get("resulting_contact_pressure_MPa", ""),
+            row.get("repeat_n", ""),
+            (round(row["repeat_std"] * 100, 3)
+             if isinstance(row.get("repeat_std"), float) and not math.isnan(row["repeat_std"])
+             else ""),
             row.get("um_per_px", ""),
             row.get("threshold", ""),
             row.get("seam_status", ""),
@@ -107,11 +113,19 @@ def write_html(rows: list, outdir: Path) -> Path:
         wear_a = row.get("wear_area_mm2")
         flags  = esc(row.get("flags") or "")
         flag_td = f'<span class="flag-warn">{flags}</span>' if flags and flags != "–" else "–"
-        # Systematic uncertainty suffix for summary table
-        fmin_s = row.get("wear_fraction_min")
-        fmax_s = row.get("wear_fraction_max")
-        unc_sfx = (f'<br><span style="color:#888;font-size:.82em">±{(fmax_s-fmin_s)/2*100:.1f} pp</span>'
-                   if fmin_s is not None and fmax_s is not None else "")
+        # Uncertainty suffix for summary table: prefer repeat std, fall back to method band
+        rpt_std = row.get("repeat_std")
+        rpt_n   = row.get("repeat_n")
+        fmin_s  = row.get("wear_fraction_min")
+        fmax_s  = row.get("wear_fraction_max")
+        if isinstance(rpt_std, float) and not math.isnan(rpt_std) and isinstance(rpt_n, int) and rpt_n >= 2:
+            unc_sfx = (f'<br><span style="color:#888;font-size:.82em">'
+                       f'±{rpt_std*100:.1f} pp (n={rpt_n})</span>')
+        elif fmin_s is not None and fmax_s is not None:
+            unc_sfx = (f'<br><span style="color:#888;font-size:.82em">'
+                       f'±{(fmax_s-fmin_s)/2*100:.1f} pp</span>')
+        else:
+            unc_sfx = ""
         sum_rows.append(
             f"<tr>"
             f"<td>{rank}</td>"
@@ -164,43 +178,66 @@ def write_html(rows: list, outdir: Path) -> Path:
         flags  = row.get("flags", "") or ""
         flag_val = f'<span class="flag-warn">{esc(flags)}</span>' if flags else "–"
 
-        # Systematic uncertainty from the 54-combination sensitivity grid
+        # Uncertainty: prefer repeat std (random, from N reps), fall back to method band (systematic)
         fmin   = row.get("wear_fraction_min")
         fmax   = row.get("wear_fraction_max")
         a_nom  = row.get("ring_area_nominal_mm2")
         force  = row.get("force_N")
-        _UNC   = '<span style="color:#888;font-size:.88em"> (systematic)</span>'
+        rpt_std = row.get("repeat_std")
+        rpt_n   = row.get("repeat_n")
+        _pp = ('<abbr title="percentage points — absolute difference, e.g. ±1 pp at 18 % '
+               'means 17–19 %">pp</abbr>')
 
-        if fmin is not None and fmax is not None:
-            half_pp = (fmax - fmin) / 2 * 100
-            _pp = ('<abbr title="percentage points — absolute difference, e.g. ±1 pp at 18 % '
-                   'means 17–19 %">pp</abbr>')
+        use_repeat = (isinstance(rpt_std, float) and not math.isnan(rpt_std)
+                      and isinstance(rpt_n, int) and rpt_n >= 2)
+
+        if use_repeat:
+            _UNC = (f'<span style="color:#888;font-size:.88em">'
+                    f' (±1σ, {rpt_n} reps)</span>')
+            half_pp = rpt_std * 100
             frac_unc = (f'<span class="{cls}"><b>{frac*100:.1f} %</b></span>'
                         f' ± {half_pp:.1f} {_pp}{_UNC}')
+            if wear_a is not None:
+                a_anal = row.get("ring_area_analyzed_mm2") or 0.0
+                wear_a_half = rpt_std * a_anal
+                wear_a_str = f"{wear_a:.3f} mm² ± {wear_a_half:.3f} mm²{_UNC}"
+            else:
+                wear_a_str = "–"
+            if res_p is not None and frac > 0 and a_nom and force:
+                # Gaussian propagation: σ_p = p × σ_frac / frac
+                p_sigma = res_p * rpt_std / frac
+                res_p_str = f"{res_p:.1f} MPa ± {p_sigma:.1f} MPa{_UNC}"
+            elif res_p is not None:
+                res_p_str = f"{res_p:.1f} MPa"
+            else:
+                res_p_str = "–"
+        elif fmin is not None and fmax is not None:
+            _UNC = '<span style="color:#888;font-size:.88em"> (systematic)</span>'
+            half_pp = (fmax - fmin) / 2 * 100
+            frac_unc = (f'<span class="{cls}"><b>{frac*100:.1f} %</b></span>'
+                        f' ± {half_pp:.1f} {_pp}{_UNC}')
+            if wear_a is not None:
+                area_analyzed = row.get("ring_area_analyzed_mm2") or 0.0
+                wear_a_half = (fmax - fmin) / 2 * area_analyzed
+                wear_a_str = f"{wear_a:.3f} mm² ± {wear_a_half:.3f} mm²{_UNC}"
+            else:
+                wear_a_str = "–"
+            if res_p is not None and fmin is not None and fmax is not None and a_nom and force:
+                rp_lo = force / (fmax * a_nom)
+                rp_hi = force / (fmin * a_nom)
+                res_p_str = f"{res_p:.1f} MPa ± {(rp_hi - rp_lo)/2:.1f} MPa{_UNC}"
+            elif res_p is not None:
+                res_p_str = f"{res_p:.1f} MPa"
+            else:
+                res_p_str = "–"
         else:
-            frac_unc = f'<span class="{cls}"><b>{frac*100:.1f} %</b></span>'
+            frac_unc  = f'<span class="{cls}"><b>{frac*100:.1f} %</b></span>'
+            wear_a_str = f"{wear_a:.3f} mm²" if wear_a is not None else "–"
+            res_p_str  = f"{res_p:.1f} MPa"  if res_p  is not None else "–"
 
-        if wear_a is not None and fmin is not None and fmax is not None:
-            area_analyzed = row.get("ring_area_analyzed_mm2") or 0.0
-            wear_a_hi = fmax * area_analyzed
-            wear_a_lo = fmin * area_analyzed
-            wear_a_half = (wear_a_hi - wear_a_lo) / 2
-            wear_a_str = f"{wear_a:.3f} mm² ± {wear_a_half:.3f} mm²{_UNC}"
-        elif wear_a is not None:
-            wear_a_str = f"{wear_a:.3f} mm²"
-        else:
-            wear_a_str = "–"
-
-        if res_p is not None and fmin is not None and fmax is not None and a_nom and force:
-            rp_lo = force / (fmax * a_nom)   # higher fmax → lower pressure
-            rp_hi = force / (fmin * a_nom)   # lower fmin  → higher pressure
-            rp_half = (rp_hi - rp_lo) / 2
-            res_p_str = f"{res_p:.1f} MPa ± {rp_half:.1f} MPa{_UNC}"
-        elif res_p is not None:
-            res_p_str = f"{res_p:.1f} MPa"
-        else:
-            res_p_str = "–"
-
+        rpt_n_v = row.get("repeat_n")
+        rpt_note = (f'<span style="color:#888;font-size:.85em"> — mean of {rpt_n_v} repetitions</span>'
+                    if isinstance(rpt_n_v, int) and rpt_n_v > 1 else "")
         metrics = [
             ("Wear fraction",         frac_unc),
             ("Wear area (analyzed)",  wear_a_str),
@@ -215,7 +252,7 @@ def write_html(rows: list, outdir: Path) -> Path:
             ("Flags",                 flag_val),
         ]
         mrows = "".join(f"<tr><td>{label}</td><td>{val}</td></tr>" for label, val in metrics)
-        title = (f"{esc(row.get('test_id','?'))}"
+        title = (f"{esc(row.get('test_id','?'))}{rpt_note}"
                  f"&ensp;–&ensp;{esc(row.get('material','?'))}"
                  f"&ensp;·&ensp;{esc(row.get('force_N','?'))} N")
         cards.append(
@@ -303,9 +340,10 @@ def write_html(rows: list, outdir: Path) -> Path:
 <tbody>{"".join(sum_rows)}</tbody>
 </table>
 <p style="color:#888;font-size:.8em;margin-top:6px">
-  ± values in <em>Wear (%)</em> column: systematic uncertainty in
-  <abbr title="percentage points — absolute difference between two percentages, e.g. 18 % ± 1 pp means the true value lies between 17 % and 19 %">pp (percentage points)</abbr>,
-  derived from a 54-combination parameter grid sweep.
+  ± values in <em>Wear (%)</em> column are in
+  <abbr title="percentage points — absolute difference between two percentages, e.g. 18 % ± 1 pp means the true value lies between 17 % and 19 %">pp (percentage points)</abbr>.
+  When multiple repetitions per experiment are available: ±1σ from repeat measurements (n shown in parentheses).
+  Otherwise: systematic uncertainty from 54-combination parameter grid sweep.
 </p>
 {chart_block}
 <h2>Details</h2>
@@ -416,9 +454,10 @@ def write_pptx(rows: list, outdir: Path) -> Path | None:
         "7  Wear fraction = worn pixels / evaluation pixels.  "
         "Method band from 54-parameter grid sweep (systematic uncertainty, shown dashed).\n\n"
         "Uncertainty notation used in this report:\n"
-        "  ±N pp  =  ±N percentage points  (systematic, from grid sweep)\n"
-        "             e.g. 18.4 % ± 1.0 pp  →  true value between 17.4 % and 19.4 %\n"
-        "  ±N mm² / ±N MPa  =  same systematic uncertainty propagated to area and pressure"
+        "  ±N pp  =  ±N percentage points  (1σ from repeat measurements, when n ≥ 2)\n"
+        "             e.g. 18.4 % ± 1.0 pp (n=3)  →  std across 3 repetitions = 1.0 pp\n"
+        "  ±N mm² / ±N MPa  =  same uncertainty propagated to wear area and contact pressure\n"
+        "  Fallback (single image): systematic uncertainty from 54-combination parameter grid sweep"
     )
     _txb(sl, 0.4, 0.75, 12.5, 6.5, method_text, sz=11, color=(40, 40, 40))
 
@@ -453,20 +492,35 @@ def write_pptx(rows: list, outdir: Path) -> Path | None:
             _txb(sl, ix, IMG_Y + 4.0, IMG_W, 0.3, caption,
                  sz=9, color=(100, 100, 100), align=PP_ALIGN.CENTER)
 
-        frac   = row.get("wear_fraction", 0.0)
-        geo_p  = row.get("geometric_contact_pressure_MPa")
-        res_p  = row.get("resulting_contact_pressure_MPa")
-        wear_a = row.get("wear_area_mm2")
-        fmin_p = row.get("wear_fraction_min")
-        fmax_p = row.get("wear_fraction_max")
+        frac     = row.get("wear_fraction", 0.0)
+        geo_p    = row.get("geometric_contact_pressure_MPa")
+        res_p    = row.get("resulting_contact_pressure_MPa")
+        wear_a   = row.get("wear_area_mm2")
+        fmin_p   = row.get("wear_fraction_min")
+        fmax_p   = row.get("wear_fraction_max")
         a_nom_p  = row.get("ring_area_nominal_mm2")
         force_p  = row.get("force_N")
         a_anal_p = row.get("ring_area_analyzed_mm2") or 0.0
+        rpt_std_p = row.get("repeat_std")
+        rpt_n_p   = row.get("repeat_n")
 
-        # Systematic uncertainty strings for PPTX
-        if fmin_p is not None and fmax_p is not None:
+        use_rep_p = (isinstance(rpt_std_p, float) and not math.isnan(rpt_std_p)
+                     and isinstance(rpt_n_p, int) and rpt_n_p >= 2)
+
+        if use_rep_p:
+            # Random uncertainty from repeat measurements
+            frac_str    = f"{frac*100:.1f} %  ±{rpt_std_p*100:.1f} pp (n={rpt_n_p})"
+            wear_a_str_p = (f"{wear_a:.3f}  ±{rpt_std_p * a_anal_p:.3f} mm²  (n={rpt_n_p})"
+                            if wear_a else "–")
+            if res_p and frac > 0:
+                p_sigma_p = res_p * rpt_std_p / frac
+                res_p_str_p = f"{res_p:.1f}  ±{p_sigma_p:.1f} MPa  (n={rpt_n_p})"
+            else:
+                res_p_str_p = f"{res_p:.1f} MPa" if res_p else "–"
+        elif fmin_p is not None and fmax_p is not None:
+            # Systematic uncertainty from method band
             half_pp_p = (fmax_p - fmin_p) / 2 * 100
-            frac_str = f"{frac*100:.1f} %  ±{half_pp_p:.1f} pp"
+            frac_str    = f"{frac*100:.1f} %  ±{half_pp_p:.1f} pp"
             wear_a_str_p = (f"{wear_a:.3f}  ±{(fmax_p - fmin_p)/2 * a_anal_p:.3f} mm²"
                             if wear_a else "–")
             if res_p and a_nom_p and force_p:

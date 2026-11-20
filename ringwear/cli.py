@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
+import statistics as _statistics
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -132,6 +134,101 @@ def _cmd_manifest_validate(args) -> int:
         return 1
     print(f"[manifest] OK — {len(rows)} entries, no errors ({folder / 'manifest.csv'})")
     return 0
+
+
+def _group_files_by_probe(files):
+    """Group input files by probe ID using manifest or filename parsing.
+
+    Returns an OrderedDict[probe_key → list[Path]] preserving input order.
+    Probes with 1 file (old convention, no repeats) produce single-element lists.
+    Probe key format: "{folder_path}::{probe_id}" (with manifest) or str(path) (no manifest).
+    """
+    from collections import OrderedDict
+    from . import manifest as _M
+
+    folder_manifests: dict = {}
+
+    def _get_row(f: Path):
+        folder = f.parent
+        if folder not in folder_manifests:
+            rows, _ = _M.load_manifest(folder)
+            folder_manifests[folder] = {r.datei: r for r in rows}
+        return folder_manifests[f.parent].get(f.name)
+
+    grouped: dict = OrderedDict()
+    for f in files:
+        row = _get_row(f)
+        if row is not None and row.zustand != "neu":
+            key = f"{f.parent}::{row.probe}"
+        else:
+            key = str(f)
+        grouped.setdefault(key, [])
+        grouped[key].append(f)
+    return grouped
+
+
+def _aggregate_probe_results(probe_key: str, probe_files: list, sub_results: list) -> dict:
+    """Merge multiple repetition results into one aggregated output row.
+
+    The representative value is the mean wear_fraction across valid repetitions.
+    repeat_std  = std of wear_fraction across reps (random measurement uncertainty).
+    wear_fraction_min/max = sensitivity-band envelope across all reps.
+    All three individual measurements are used only here (internal calibration);
+    only this one aggregated row goes into the output.
+    """
+    good = [r for r in sub_results
+            if isinstance(r.get("wear_fraction"), float)
+            and not math.isnan(r["wear_fraction"])]
+    if not good:
+        flags_all = "; ".join(r.get("flags", "ERROR") for r in sub_results)
+        name = probe_key.split("::")[-1] if "::" in probe_key else Path(probe_key).name
+        return {"file": name, "flags": f"ERROR: all {len(sub_results)} repetitions failed — {flags_all}"}
+
+    n = len(good)
+    fracs = [r["wear_fraction"] for r in good]
+    mean_frac = sum(fracs) / n
+    std_frac = _statistics.stdev(fracs) if n >= 2 else float("nan")
+
+    fmins = [r["wear_fraction_min"] for r in good
+             if isinstance(r.get("wear_fraction_min"), float)]
+    fmaxs = [r["wear_fraction_max"] for r in good
+             if isinstance(r.get("wear_fraction_max"), float)]
+
+    # Base: first successful repetition; override key numeric fields with means
+    rep = dict(good[0])
+    rep["wear_fraction"] = mean_frac
+    rep["wear_fraction_min"] = min(fmins) if fmins else None
+    rep["wear_fraction_max"] = max(fmaxs) if fmaxs else None
+    rep["repeat_std"] = std_frac
+    rep["repeat_n"] = n
+    rep["source_files"] = "; ".join(r.get("file", "") for r in good)
+
+    # Recompute derived values from mean fraction
+    nom_area = rep.get("ring_area_nominal_mm2")
+    anal_area = rep.get("ring_area_analyzed_mm2")
+    force = rep.get("force_N")
+    if isinstance(nom_area, float) and mean_frac > 0:
+        rep["wear_area_mm2"] = mean_frac * nom_area
+        if isinstance(force, float):
+            rep["resulting_contact_pressure_MPa"] = force / (mean_frac * nom_area)
+    if isinstance(anal_area, float) and mean_frac > 0:
+        rep["wear_area_analyzed_mm2"] = mean_frac * anal_area
+
+    # Average geometry/calibration fields across reps
+    for field in ("um_per_px", "ring_area_analyzed_mm2", "threshold"):
+        vals = [r.get(field) for r in good if isinstance(r.get(field), float)]
+        if vals:
+            rep[field] = sum(vals) / len(vals)
+
+    # Combine non-empty flag strings; note failed reps
+    all_flags = [r.get("flags", "") for r in good if r.get("flags")]
+    err_reps = [r.get("file", "?") for r in sub_results
+                if not isinstance(r.get("wear_fraction"), float)]
+    if err_reps:
+        all_flags.append(f"failed reps: {', '.join(err_reps)}")
+    rep["flags"] = "; ".join(all_flags) if all_flags else ""
+
+    return rep
 
 
 def _dispatch_subcommand(cmd: str, rest: list[str]) -> int:
@@ -276,38 +373,71 @@ def main(argv=None):
         except OSError:
             font = ImageFont.load_default()
 
+    # Group input files by probe so that multiple repetitions of the same
+    # experiment are merged into one output row (mean ± std).
+    # All individual repetition analyses run internally for calibration;
+    # only the aggregated result per probe appears in CSV / HTML / PPTX.
+    grouped = _group_files_by_probe(files)
     rows = []
-    for f in files:
-        try:
-            res = analyse(f, p, out, panel=a.panel, font=font,
-                          sensitivity_grid=sens_grid, sensitivity_best=sens_best)
 
-            res["_worn_abspath"] = str(f.resolve())
+    for probe_key, probe_files in grouped.items():
+        sub_results: list[dict] = []
 
-            mat = res.get("material", "")
-            stem = Path(res["file"]).stem
-            new_probe = _find_new_probe(mat, neu_dir)
-            res["_new_probe_abspath"] = str(new_probe) if new_probe else None
+        for f in probe_files:
+            try:
+                res = analyse(f, p, out, panel=a.panel, font=font,
+                              sensitivity_grid=sens_grid, sensitivity_best=sens_best)
 
-            worn_dest = _copy_image_to_outdir(f, out, f"{stem}_worn{f.suffix}")
-            new_dest  = _copy_image_to_outdir(new_probe, out, f"{stem}_new.jpg") if new_probe else None
-            res["_worn_outdir"]     = worn_dest.name  if worn_dest  else None
-            res["_new_probe_outdir"] = new_dest.name  if new_dest   else None
+                res["_worn_abspath"] = str(f.resolve())
 
-            rows.append(res)
-            ring_nom_val  = res.get("ring_area_nominal_mm2")
-            ring_file     = res.get("sample_area_mm2")
-            ring_analyzed = res.get("ring_area_analyzed_mm2")
-            area_str = (
-                f"  nominal={ring_nom_val:.1f} mm² (OD={p.outer_diam_mm}/ID={p.inner_diam_mm} mm, "
-                f"filename={ring_file} mm²)  analyzed={ring_analyzed:.1f} mm² (image crop)"
-                if ring_nom_val and ring_file else ""
-            )
-            print(f"{f.name:40s} {res['wear_fraction']*100:5.1f} %  T=+{(res['threshold']-1)*100:4.1f} %  "
-                  f"Seam: {res['seam_status']:<20s}{area_str}  {res['flags']}")
-        except Exception as e:
-            rows.append(dict(file=f.name, flags=f"ERROR: {e}"))
-            print(f"{f.name:40s} ERROR: {e}")
+                mat = res.get("material", "")
+                stem = Path(res["file"]).stem
+                new_probe = _find_new_probe(mat, neu_dir)
+                res["_new_probe_abspath"] = str(new_probe) if new_probe else None
+
+                worn_dest = _copy_image_to_outdir(f, out, f"{stem}_worn{f.suffix}")
+                new_dest  = _copy_image_to_outdir(new_probe, out, f"{stem}_new.jpg") if new_probe else None
+                res["_worn_outdir"]     = worn_dest.name if worn_dest else None
+                res["_new_probe_outdir"] = new_dest.name if new_dest  else None
+
+                sub_results.append(res)
+                ring_nom_val  = res.get("ring_area_nominal_mm2")
+                ring_file     = res.get("sample_area_mm2")
+                ring_analyzed = res.get("ring_area_analyzed_mm2")
+                area_str = (
+                    f"  nominal={ring_nom_val:.1f} mm² (OD={p.outer_diam_mm}/ID={p.inner_diam_mm} mm, "
+                    f"filename={ring_file} mm²)  analyzed={ring_analyzed:.1f} mm² (image crop)"
+                    if ring_nom_val and ring_file else ""
+                )
+                rep_tag = f"  [rep {len(sub_results)}/{len(probe_files)}]" if len(probe_files) > 1 else ""
+                print(f"{f.name:40s} {res['wear_fraction']*100:5.1f} %  T=+{(res['threshold']-1)*100:4.1f} %  "
+                      f"Seam: {res['seam_status']:<20s}{area_str}  {res['flags']}{rep_tag}")
+            except Exception as e:
+                sub_results.append({"file": f.name, "flags": f"ERROR: {e}"})
+                print(f"{f.name:40s} ERROR: {e}")
+
+        if len(probe_files) == 1:
+            # Single measurement: pass through unchanged
+            rows.append(sub_results[0])
+        else:
+            # Multiple repetitions: merge into one aggregated row
+            agg = _aggregate_probe_results(probe_key, probe_files, sub_results)
+            # Images / overlay come from the first successful repetition
+            first_good = next((r for r in sub_results
+                               if isinstance(r.get("wear_fraction"), float)), None)
+            if first_good:
+                for _k in ("_worn_abspath", "_new_probe_abspath",
+                           "_worn_outdir", "_new_probe_outdir", "_fracs_grid"):
+                    agg.setdefault(_k, first_good.get(_k))
+            rows.append(agg)
+            n_ok_rep = sum(1 for r in sub_results
+                           if isinstance(r.get("wear_fraction"), float))
+            std_str = (f"{agg['repeat_std']*100:.2f} pp"
+                       if isinstance(agg.get("repeat_std"), float)
+                          and not math.isnan(agg["repeat_std"])
+                       else "n/a")
+            print(f"  ↳ aggregate ({n_ok_rep}/{len(probe_files)} reps): "
+                  f"mean={agg['wear_fraction']*100:.1f} %  ±{std_str}")
 
     # Rank stability report (requires sensitivity grid)
     if sens_grid and len(rows) >= 2:
