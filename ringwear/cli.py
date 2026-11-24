@@ -326,6 +326,30 @@ def main(argv=None):
         sys.exit("Keine Bilder gefunden.")
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
 
+    # Separate plate images (reference photos, not analysed) from ring images
+    _fm_cache: dict = {}
+    def _mrow_for(f: Path):
+        folder = f.parent
+        if folder not in _fm_cache:
+            rows, _ = _manifest.load_manifest(folder)
+            _fm_cache[folder] = {r.datei: r for r in rows}
+        return _fm_cache[folder].get(f.name)
+
+    plate_lookup: dict[str, Path] = {}   # probe_id → original plate image path
+    ring_files: list[Path] = []
+    for _f in files:
+        _mr = _mrow_for(_f)
+        if _mr is not None and getattr(_mr, "filetype", "ring") == "plate":
+            plate_lookup[_mr.probe] = _f
+            print(f"[plate] {_f.name} → reference image for probe {_mr.probe} (not analysed)")
+        else:
+            ring_files.append(_f)
+    files = ring_files
+    if not files and not plate_lookup:
+        sys.exit("Keine Bilder gefunden.")
+    if not files:
+        print("[INFO] Only plate reference images found — no ring images to analyse.")
+
     # Load sensitivity grid
     sens_grid, sens_best = None, None
     if not a.no_sensitivity:
@@ -460,8 +484,8 @@ def main(argv=None):
         for r_ in rows:
             w.writerow({k: (str(v).replace(".", ",") if isinstance(v, float) else v) for k, v in r_.items()})
     xlsx = write_excel(rows, out)
-    html = write_html(rows, out)
-    pptx = write_pptx(rows, out)
+    html = write_html(rows, out, plate_lookup=plate_lookup)
+    pptx = write_pptx(rows, out, plate_lookup=plate_lookup)
     (out / "params.json").write_text(json.dumps(asdict(p), indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"\n{len(rows)} images -> {out / 'results.csv'}")
     if xlsx:

@@ -33,9 +33,22 @@ _RE_NEW_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# Old convention: T{N}_{Material}_{Force}N_{Area}mm2_ring[_r{rep}]  (optional repeat suffix)
+# Old convention: T{N}_{Material}_{Force}N[_{condition_pre}]_{Area}mm2_ring[_{condition_post}][_r{rep}]
+# condition token (e.g. "grinded") may appear either before the area or after "ring".
+# It must start with a letter (so it doesn't clash with the numeric area) and must not
+# look like the repeat suffix _r{digit} (guarded by negative lookahead).
 _RE_OLD_PATTERN = re.compile(
-    r"^(?P<probe>T\d+)_(?P<material>[^_]+)_(?P<force>\d+)N_(?P<area>\d+)mm2_ring(?:_r(?P<rep>\d+))?$",
+    r"^(?P<probe>T\d+)_(?P<material>[^_]+)_(?P<force>\d+)N_"
+    r"(?:(?P<condition_pre>[a-zA-Z][^_]*)_)?"        # optional condition before area
+    r"(?P<area>\d+)mm2_ring"
+    r"(?:_(?!r\d)(?P<condition_post>[a-zA-Z][^_]*))?(?:_r(?P<rep>\d+))?$",
+    re.IGNORECASE,
+)
+
+# Plate images: T{N}_{Material}_{Force}N_plate[_{condition}][_r{rep}] — reference photos, not analysed
+_RE_PLATE_PATTERN = re.compile(
+    r"^(?P<probe>T\d+)_(?P<material>[^_]+)_(?P<force>\d+)N_plate"
+    r"(?:_(?!r\d)(?P<condition>[a-zA-Z][^_]*))?(?:_r(?P<rep>\d+))?$",
     re.IGNORECASE,
 )
 
@@ -49,7 +62,8 @@ class ManifestRow:
     winkel_deg: float    # deliberate rotation (0 = normal)
     sitzung: str         # session label (empty string if unknown)
     bemerkung: str       # free-text comment
-    _source: str = field(default="manifest", repr=False)  # "manifest" | "filename" | "old_convention"
+    _source: str = field(default="manifest", repr=False)   # "manifest" | "filename" | "old_convention"
+    filetype: str = field(default="ring", repr=False)      # "ring" | "plate"
 
 
 # ── Loading ────────────────────────────────────────────────────────────────────
@@ -104,11 +118,14 @@ def _load_csv(path: Path) -> tuple[list[ManifestRow], list[str]]:
             if zustand not in VALID_STATES:
                 warnings.append(f"row {i}: unknown zustand '{zustand}' for '{datei}'")
 
+            # Infer filetype from filename convention (no filetype column in CSV)
+            _ftype = "plate" if _RE_PLATE_PATTERN.match(Path(datei).stem) else "ring"
             rows.append(ManifestRow(
                 datei=datei, probe=probe, zustand=zustand,
                 wiederholung=wiederholung, winkel_deg=winkel_deg,
                 sitzung=sitzung, bemerkung=bemerkung,
                 _source="manifest",
+                filetype=_ftype,
             ))
     return rows, warnings
 
@@ -145,9 +162,26 @@ def _parse_stem(stem: str, filename: str) -> tuple[ManifestRow, list[str]]:
             _source="filename",
         ), warnings
 
+    m = _RE_PLATE_PATTERN.match(stem)
+    if m:
+        rep = int(m.group("rep")) if m.group("rep") else 1
+        cond = m.group("condition") or ""
+        return ManifestRow(
+            datei=filename,
+            probe=m.group("probe"),
+            zustand="nach",
+            wiederholung=rep,
+            winkel_deg=0.0,
+            sitzung="",
+            bemerkung=f"plate_image{';' + cond if cond else ''}",
+            _source="old_convention",
+            filetype="plate",
+        ), warnings
+
     m = _RE_OLD_PATTERN.match(stem)
     if m:
         rep = int(m.group("rep")) if m.group("rep") else 1
+        cond = m.group("condition_pre") or m.group("condition_post") or ""
         return ManifestRow(
             datei=filename,
             probe=m.group("probe"),
@@ -155,7 +189,7 @@ def _parse_stem(stem: str, filename: str) -> tuple[ManifestRow, list[str]]:
             wiederholung=rep,
             winkel_deg=0.0,
             sitzung="",
-            bemerkung="old_convention",
+            bemerkung=f"old_convention{';' + cond if cond else ''}",
             _source="old_convention",
         ), warnings
 
@@ -192,10 +226,11 @@ def validate(rows: list[ManifestRow], folder: Path | None = None) -> list[str]:
         else:
             seen_datei[r.datei] = i
 
-    # Duplicate (probe, zustand, wiederholung, winkel_deg) → same measurement twice
+    # Duplicate (probe, zustand, wiederholung, winkel_deg, filetype) → same measurement twice
     seen_key: dict[tuple, int] = {}
     for i, r in enumerate(rows):
-        key = (r.probe, r.zustand, r.wiederholung, r.winkel_deg)
+        key = (r.probe, r.zustand, r.wiederholung, r.winkel_deg,
+               getattr(r, "filetype", "ring"))
         if key in seen_key:
             errors.append(
                 f"Duplicate measurement key {key} for files "

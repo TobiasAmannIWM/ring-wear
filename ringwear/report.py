@@ -94,7 +94,7 @@ def _img_b64_src(path: "Path | None") -> "str | None":
     return f"data:image/{mime};base64,{base64.b64encode(p.read_bytes()).decode()}"
 
 
-def write_html(rows: list, outdir: Path) -> Path:
+def write_html(rows: list, outdir: Path, *, plate_lookup: "dict | None" = None) -> Path:
     """Standalone HTML report — all images embedded as base64 data URIs."""
     import datetime
     import html as _html
@@ -175,11 +175,20 @@ def write_html(rows: list, outdir: Path) -> Path:
                    if src else f'<div class="img-missing">{esc(alt)}<br>not found</div>')
             return (f'<div class="img-cell">{tag}'
                     f'<div class="img-caption">{caption}</div></div>')
+        plate_path = (plate_lookup or {}).get(row.get("test_id", ""))
+        plate_src  = _img_b64_src(plate_path)
+        plate_cell = (
+            (f'<div class="img-cell">'
+             f'<img src="{plate_src}" alt="plate">'
+             f'<div class="img-caption">④ Plate (reference)</div></div>')
+            if plate_src else ""
+        )
         img_block = (
             f'<div class="img-row">'
             f'{_img(worn_path,  "worn probe", "② Worn probe")}'
             f'{_img(new_path,   "new probe",  "① New probe (unworn)")}'
             f'{_img(ov_file,    "wear overlay", "③ Wear detected (red)")}'
+            f'{plate_cell}'
             f'</div>'
         )
         frac   = row.get("wear_fraction", 0.0)
@@ -396,7 +405,7 @@ Full technical description: <code>docs/method_description.md</code></p>
 # --------------------------------------------------------------------------- #
 # PPTX report
 # --------------------------------------------------------------------------- #
-def write_pptx(rows: list, outdir: Path) -> Path | None:
+def write_pptx(rows: list, outdir: Path, *, plate_lookup: "dict | None" = None) -> Path | None:
     """PowerPoint report: title slide + one slide per experiment + summary."""
     try:
         from pptx import Presentation
@@ -486,13 +495,29 @@ def write_pptx(rows: list, outdir: Path) -> Path | None:
         _txb(sl, 0.25, 0.08, 13.0, 0.55, title,
              bold=True, sz=20, color=(31, 78, 121))
 
-        IMG_CAPTIONS = ["② Worn probe", "① New probe (unworn)", "③ Wear detected"]
-        img_specs = [
-            row.get("_worn_abspath"),
-            row.get("_new_probe_abspath"),
-            str(outdir / f"{stem}_overlay.png"),
-        ]
-        IMG_Y, IMG_W, IMG_GAP = 0.72, 2.55, 0.12
+        _plate_abs = None
+        if plate_lookup:
+            _pp = (plate_lookup or {}).get(row.get("test_id", ""))
+            if _pp and Path(_pp).exists():
+                _plate_abs = str(_pp)
+        if _plate_abs:
+            IMG_CAPTIONS = ["② Worn probe", "① New probe (unworn)",
+                            "③ Wear detected", "④ Plate (reference)"]
+            img_specs = [
+                row.get("_worn_abspath"),
+                row.get("_new_probe_abspath"),
+                str(outdir / f"{stem}_overlay.png"),
+                _plate_abs,
+            ]
+            IMG_Y, IMG_W, IMG_GAP = 0.72, 1.85, 0.10
+        else:
+            IMG_CAPTIONS = ["② Worn probe", "① New probe (unworn)", "③ Wear detected"]
+            img_specs = [
+                row.get("_worn_abspath"),
+                row.get("_new_probe_abspath"),
+                str(outdir / f"{stem}_overlay.png"),
+            ]
+            IMG_Y, IMG_W, IMG_GAP = 0.72, 2.55, 0.12
         for idx, (img_abs, caption) in enumerate(zip(img_specs, IMG_CAPTIONS)):
             ix = 0.25 + idx * (IMG_W + IMG_GAP)
             if img_abs and Path(img_abs).exists():

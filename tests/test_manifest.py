@@ -132,6 +132,65 @@ class TestFilenameFallback:
         # No "does not match" warnings
         assert not any("does not match" in w for w in warnings)
 
+    def test_old_convention_with_condition_before_area(self, tmp_path):
+        """Ring with condition token BEFORE area (actual file convention on disk)."""
+        _make_images(tmp_path, ["T8_INC718_1620N_grinded_43mm2_ring.jpg"])
+        rows, warnings = M.load_manifest(tmp_path)
+        assert len(rows) == 1
+        r = rows[0]
+        assert r.probe == "T8"
+        assert r.zustand == "nach"
+        assert r.filetype == "ring"
+        assert "grinded" in r.bemerkung
+        assert not any("does not match" in w for w in warnings)
+
+    def test_old_convention_with_condition_after_ring(self, tmp_path):
+        """Ring with condition token AFTER ring (alternative renaming convention)."""
+        _make_images(tmp_path, ["T8_INC718_1620N_43mm2_ring_grinded.jpg"])
+        rows, warnings = M.load_manifest(tmp_path)
+        assert len(rows) == 1
+        r = rows[0]
+        assert r.probe == "T8"
+        assert r.filetype == "ring"
+        assert "grinded" in r.bemerkung
+        assert not any("does not match" in w for w in warnings)
+
+    def test_old_convention_with_condition_and_rep(self, tmp_path):
+        """Ring with condition-before-area + repeat suffix."""
+        _make_images(tmp_path, ["T8_INC718_1620N_grinded_43mm2_ring_r2.jpg"])
+        rows, warnings = M.load_manifest(tmp_path)
+        assert len(rows) == 1
+        r = rows[0]
+        assert r.probe == "T8"
+        assert r.wiederholung == 2
+        assert "grinded" in r.bemerkung
+        assert not any("does not match" in w for w in warnings)
+
+    def test_plate_image_parsed(self, tmp_path):
+        """Plate image (T{N}…_plate.jpg) must parse as filetype='plate'."""
+        _make_images(tmp_path, ["T1_INC625M_6480N_plate.jpg"])
+        rows, warnings = M.load_manifest(tmp_path)
+        assert len(rows) == 1
+        r = rows[0]
+        assert r.probe == "T1"
+        assert r.filetype == "plate"
+        assert r.zustand == "nach"
+        assert "plate_image" in r.bemerkung
+        assert not any("does not match" in w for w in warnings)
+
+    def test_ring_and_plate_same_probe_no_duplicate_error(self, tmp_path):
+        """Ring T10 + plate T10 must not trigger a 'Duplicate measurement key' error."""
+        _make_images(tmp_path, [
+            "T10_INC718_810N_43mm2_ring.jpg",
+            "T10_INC718_810N_plate.jpg",
+        ])
+        rows, warnings = M.load_manifest(tmp_path)
+        assert len(rows) == 2
+        filetypes = {r.filetype for r in rows}
+        assert filetypes == {"ring", "plate"}
+        errors = M.validate(rows, tmp_path)
+        assert not any("Duplicate" in e for e in errors)
+
 
 # ── Validation ─────────────────────────────────────────────────────────────────
 
