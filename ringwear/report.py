@@ -26,7 +26,9 @@ def write_excel(rows: list, outdir: Path) -> Path | None:
     ws.title = "Wear results"
 
     headers = [
-        "File", "Test", "Material",
+        "File", "Method", "Test",
+        "Ring material", "Plate material (counter body)",
+        "Condition", "Temperature (°C)", "Rotation (°)", "Geometry",
         "Force (N)",
         "Sample area - filename (mm²)", "Ring area - nominal OD/ID (mm²)", "Ring area - analyzed (mm²)",
         "Bore diameter - measured (mm)",
@@ -47,8 +49,14 @@ def write_excel(rows: list, outdir: Path) -> Path | None:
         frac = row.get("wear_fraction")
         ws.append([
             row.get("file", ""),
+            row.get("method_name") or "",
             row.get("test_id", ""),
             row.get("material", ""),
+            row.get("plate_material") or "",
+            row.get("condition") or "",
+            row.get("temperature_C") or "",
+            row.get("rotation_deg") or "",
+            row.get("geometry") or "",
             row.get("force_N", ""),
             row.get("sample_area_mm2", ""),
             row.get("ring_area_nominal_mm2", ""),
@@ -259,23 +267,68 @@ def write_html(rows: list, outdir: Path, *, plate_lookup: "dict | None" = None) 
         rpt_n_v = row.get("repeat_n")
         rpt_note = (f'<span style="color:#888;font-size:.85em"> — mean of {rpt_n_v} repetitions</span>'
                     if isinstance(rpt_n_v, int) and rpt_n_v > 1 else "")
-        metrics = [
-            ("Wear fraction",         frac_unc),
-            ("Wear area (analyzed)",  wear_a_str),
-            ("Ring area nominal",     f"{esc(a_nom)} mm²"),
-            ("Ring area analyzed",    f"{esc(row.get('ring_area_analyzed_mm2'))} mm²"),
-            ("Bore Ø measured",       f"{esc(row.get('bore_diameter_measured_mm'))} mm"),
-            ("Geometric pressure",    f"{geo_p:.1f} MPa"  if geo_p else "–"),
-            ("Resulting pressure",    res_p_str),
-            ("µm/px",                 esc(row.get("um_per_px"))),
-            ("Threshold",             esc(row.get("threshold"))),
-            ("Seam",                  esc(row.get("seam_status"))),
-            ("Flags",                 flag_val),
-        ]
+
+        # Optional metadata fields from rich filename convention
+        _plate_m  = row.get("plate_material")
+        _cond     = row.get("condition")
+        _temp_C   = row.get("temperature_C")
+        _rot_deg  = row.get("rotation_deg")
+        _geom     = row.get("geometry")
+        _mname    = row.get("method_name")
+
+        meta_rows = []
+        if _mname:
+            meta_rows.append(("Method",          esc(_mname)))
+        if _plate_m:
+            meta_rows.append(("Plate material",  esc(_plate_m)))
+        if _cond:
+            meta_rows.append(("Condition",       esc(_cond)))
+        if _temp_C is not None:
+            meta_rows.append(("Temperature",     f"{_temp_C:.0f} °C"))
+        if _rot_deg is not None:
+            meta_rows.append(("Rotation",        f"{_rot_deg:.0f}°"))
+        if _geom:
+            meta_rows.append(("Geometry",        esc(_geom)))
+
+        metrics = (
+            meta_rows
+            + [
+                ("Wear fraction",         frac_unc),
+                ("Wear area (analyzed)",  wear_a_str),
+                ("Ring area nominal",     f"{esc(a_nom)} mm²"),
+                ("Ring area analyzed",    f"{esc(row.get('ring_area_analyzed_mm2'))} mm²"),
+                ("Bore Ø measured",       f"{esc(row.get('bore_diameter_measured_mm'))} mm"),
+                ("Geometric pressure",    f"{geo_p:.1f} MPa"  if geo_p else "–"),
+                ("Resulting pressure",    res_p_str),
+                ("µm/px",                 esc(row.get("um_per_px"))),
+                ("Threshold",             esc(row.get("threshold"))),
+                ("Seam",                  esc(row.get("seam_status"))),
+                ("Flags",                 flag_val),
+            ]
+        )
         mrows = "".join(f"<tr><td>{label}</td><td>{val}</td></tr>" for label, val in metrics)
-        title = (f"{esc(row.get('test_id','?'))}{rpt_note}"
-                 f"&ensp;–&ensp;{esc(row.get('material','?'))}"
-                 f"&ensp;·&ensp;{esc(row.get('force_N','?'))} N")
+
+        # Enrich card title with available metadata
+        _mat_str = esc(row.get("material", "?"))
+        if _plate_m:
+            _mat_str += f" / {esc(_plate_m)}"
+        _meta_tokens = []
+        if _cond:
+            _meta_tokens.append(esc(_cond))
+        if _temp_C is not None:
+            _meta_tokens.append(f"{_temp_C:.0f}°C")
+        if _rot_deg is not None:
+            _meta_tokens.append(f"R{_rot_deg:.0f}°")
+        _force_str = f"{esc(row.get('force_N','?'))} N"
+        if _meta_tokens:
+            title = (f"{esc(row.get('test_id','?'))}{rpt_note}"
+                     f"&ensp;–&ensp;{_mat_str}"
+                     f"&ensp;·&ensp;{'&ensp;·&ensp;'.join(_meta_tokens)}"
+                     f"&ensp;·&ensp;{_force_str}")
+        else:
+            title = (f"{esc(row.get('test_id','?'))}{rpt_note}"
+                     f"&ensp;–&ensp;{_mat_str}"
+                     f"&ensp;·&ensp;{_force_str}")
         cards.append(
             f'<div class="card"><h3>{title}</h3>'
             f'{img_block}'
@@ -490,8 +543,27 @@ def write_pptx(rows: list, outdir: Path, *, plate_lookup: "dict | None" = None) 
         _bg(sl, 248, 248, 248)
         stem = Path(row.get("file", "unknown")).stem
 
-        title = (f"{row.get('test_id','?')}  –  {row.get('material','?')}"
-                 f"  ·  {row.get('force_N','?')} N")
+        _p_plate_m = row.get("plate_material")
+        _p_cond    = row.get("condition")
+        _p_temp    = row.get("temperature_C")
+        _p_rot     = row.get("rotation_deg")
+        _p_mat     = row.get("material", "?")
+        if _p_plate_m:
+            _p_mat += f" / {_p_plate_m}"
+        _p_tokens = []
+        if _p_cond:
+            _p_tokens.append(_p_cond)
+        if _p_temp is not None:
+            _p_tokens.append(f"{_p_temp:.0f}°C")
+        if _p_rot is not None:
+            _p_tokens.append(f"R{_p_rot:.0f}°")
+        _p_force = f"{row.get('force_N','?')} N"
+        if _p_tokens:
+            title = (f"{row.get('test_id','?')}  –  {_p_mat}"
+                     f"  ·  {'  ·  '.join(_p_tokens)}"
+                     f"  ·  {_p_force}")
+        else:
+            title = f"{row.get('test_id','?')}  –  {_p_mat}  ·  {_p_force}"
         _txb(sl, 0.25, 0.08, 13.0, 0.55, title,
              bold=True, sz=20, color=(31, 78, 121))
 
@@ -572,7 +644,20 @@ def write_pptx(rows: list, outdir: Path, *, plate_lookup: "dict | None" = None) 
             res_p_str_p  = f"{res_p:.1f} MPa"  if res_p  else "–"
 
         mx = 8.35
-        lines = [
+        _extra_lines = []
+        if row.get("method_name"):
+            _extra_lines.append(("Method",         row["method_name"]))
+        if row.get("plate_material"):
+            _extra_lines.append(("Plate material", row["plate_material"]))
+        if row.get("condition"):
+            _extra_lines.append(("Condition",      row["condition"]))
+        if row.get("temperature_C") is not None:
+            _extra_lines.append(("Temperature",    f"{row['temperature_C']:.0f} °C"))
+        if row.get("rotation_deg") is not None:
+            _extra_lines.append(("Rotation",       f"{row['rotation_deg']:.0f}°"))
+        if row.get("geometry"):
+            _extra_lines.append(("Geometry",       row["geometry"]))
+        lines = _extra_lines + [
             ("Wear fraction",        frac_str),
             ("Wear area (analyzed)", wear_a_str_p),
             ("Geometric pressure",   f"{geo_p:.1f} MPa"  if geo_p  else "–"),

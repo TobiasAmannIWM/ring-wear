@@ -45,6 +45,24 @@ _RE_OLD_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Rich new convention: {method}_T{N}_{ring}_{plate}_{cond}_{temp}C_{rot}_{geom}_{force}N_{area}mm2_ring
+_RE_RICH_PATTERN = re.compile(
+    r"^(?P<method>[A-Za-z][^_]*)_(?P<probe>T\d+)_(?P<ring>[^_]+)_"
+    r"(?P<plate>[^_]+)_(?P<cond>[^_]+)_(?P<temp>-?\d+(?:\.\d+)?)C_"
+    r"(?P<rot>R\d+)_(?P<geom>[^_]+)_(?P<force>\d+)N_(?P<area>\d+)mm2_ring"
+    r"(?:_(?!r\d)(?P<cond_post>[a-zA-Z][^_]*))?(?:_r(?P<rep>\d+))?$",
+    re.IGNORECASE,
+)
+
+# Rich plate: same prefix but ends with _plate instead of _ring
+_RE_RICH_PLATE_PATTERN = re.compile(
+    r"^(?P<method>[A-Za-z][^_]*)_(?P<probe>T\d+)_(?P<ring>[^_]+)_"
+    r"(?P<plate>[^_]+)_(?P<cond>[^_]+)_(?P<temp>-?\d+(?:\.\d+)?)C_"
+    r"(?P<rot>R\d+)_(?P<geom>[^_]+)_(?P<force>\d+)N_plate"
+    r"(?:_(?!r\d)(?P<cond_post>[a-zA-Z][^_]*))?(?:_r(?P<rep>\d+))?$",
+    re.IGNORECASE,
+)
+
 # Plate images: T{N}_{Material}_{Force}N_plate[_{condition}][_r{rep}] — reference photos, not analysed
 _RE_PLATE_PATTERN = re.compile(
     r"^(?P<probe>T\d+)_(?P<material>[^_]+)_(?P<force>\d+)N_plate"
@@ -119,7 +137,9 @@ def _load_csv(path: Path) -> tuple[list[ManifestRow], list[str]]:
                 warnings.append(f"row {i}: unknown zustand '{zustand}' for '{datei}'")
 
             # Infer filetype from filename convention (no filetype column in CSV)
-            _ftype = "plate" if _RE_PLATE_PATTERN.match(Path(datei).stem) else "ring"
+            _s = Path(datei).stem
+            _ftype = "plate" if (_RE_RICH_PLATE_PATTERN.match(_s) or
+                                  _RE_PLATE_PATTERN.match(_s)) else "ring"
             rows.append(ManifestRow(
                 datei=datei, probe=probe, zustand=zustand,
                 wiederholung=wiederholung, winkel_deg=winkel_deg,
@@ -146,8 +166,40 @@ def _fallback_from_filenames(
 
 
 def _parse_stem(stem: str, filename: str) -> tuple[ManifestRow, list[str]]:
-    """Try new pattern, then old convention, then unknown fallback."""
+    """Try rich convention, then new pattern, then old convention, then unknown fallback."""
     warnings: list[str] = []
+
+    # ── Rich new convention — plate image ─────────────────────────────────────
+    m = _RE_RICH_PLATE_PATTERN.match(stem)
+    if m:
+        rep = int(m.group("rep")) if m.group("rep") else 1
+        return ManifestRow(
+            datei=filename,
+            probe=m.group("probe"),
+            zustand="nach",
+            wiederholung=rep,
+            winkel_deg=0.0,
+            sitzung="",
+            bemerkung=f"plate_image",
+            _source="old_convention",
+            filetype="plate",
+        ), warnings
+
+    # ── Rich new convention — ring image ──────────────────────────────────────
+    m = _RE_RICH_PATTERN.match(stem)
+    if m:
+        rep = int(m.group("rep")) if m.group("rep") else 1
+        return ManifestRow(
+            datei=filename,
+            probe=m.group("probe"),
+            zustand="nach",
+            wiederholung=rep,
+            winkel_deg=0.0,
+            sitzung="",
+            bemerkung=f"rich_convention",
+            _source="old_convention",
+            filetype="ring",
+        ), warnings
 
     m = _RE_NEW_PATTERN.match(stem)
     if m:

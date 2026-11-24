@@ -10,6 +10,7 @@ import pytest
 
 from ringwear import manifest as M
 from ringwear.cli import main
+from ringwear.core import _parse_stem as _core_parse_stem
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -307,3 +308,98 @@ class TestManifestCLI:
         with pytest.raises(SystemExit) as exc:
             main([])
         assert exc.value.code == 1
+
+
+# ── Rich filename convention ───────────────────────────────────────────────────
+
+class TestRichConvention:
+    """Tests for the rich new filename convention:
+    {method}_{probe}_{ring}_{plate}_{cond}_{temp}C_{rot}_{geom}_{force}N_{area}mm2_ring
+    """
+
+    def test_rich_ring_parsed(self, tmp_path):
+        """Full rich ring filename must parse correctly."""
+        name = "HTempGall_T1_INC625M_HX_dry_450C_R360_RP_6480N_43mm2_ring.jpg"
+        _make_images(tmp_path, [name])
+        rows, warnings = M.load_manifest(tmp_path)
+        assert len(rows) == 1
+        r = rows[0]
+        assert r.probe == "T1"
+        assert r.zustand == "nach"
+        assert r.filetype == "ring"
+        assert r.bemerkung == "rich_convention"
+        assert not any("does not match" in w for w in warnings)
+
+    def test_rich_plate_parsed(self, tmp_path):
+        """Full rich plate filename must parse as filetype='plate'."""
+        name = "HTempGall_T1_INC625M_HX_dry_450C_R360_RP_6480N_plate.jpg"
+        _make_images(tmp_path, [name])
+        rows, warnings = M.load_manifest(tmp_path)
+        assert len(rows) == 1
+        r = rows[0]
+        assert r.probe == "T1"
+        assert r.filetype == "plate"
+        assert r.zustand == "nach"
+        assert not any("does not match" in w for w in warnings)
+
+    def test_rich_ring_with_rep(self, tmp_path):
+        """Rich ring with repeat suffix must capture rep number."""
+        name = "HTempGall_T2_INC718_HX_dry_450C_R360_RP_6480N_43mm2_ring_r2.jpg"
+        _make_images(tmp_path, [name])
+        rows, _ = M.load_manifest(tmp_path)
+        assert rows[0].probe == "T2"
+        assert rows[0].wiederholung == 2
+        assert rows[0].filetype == "ring"
+
+    def test_rich_ring_and_rich_plate_same_probe_no_duplicate(self, tmp_path):
+        """Rich ring T1 + rich plate T1 must not cause duplicate-key error."""
+        _make_images(tmp_path, [
+            "HTempGall_T1_INC625M_HX_dry_450C_R360_RP_6480N_43mm2_ring.jpg",
+            "HTempGall_T1_INC625M_HX_dry_450C_R360_RP_6480N_plate.jpg",
+        ])
+        rows, warnings = M.load_manifest(tmp_path)
+        assert len(rows) == 2
+        filetypes = {r.filetype for r in rows}
+        assert filetypes == {"ring", "plate"}
+        errors = M.validate(rows, tmp_path)
+        assert not any("Duplicate" in e for e in errors)
+
+
+# ── core._parse_stem: rich convention metadata fields ─────────────────────────
+
+class TestCoreParseStemRich:
+    """Verify that core._parse_stem() extracts all metadata from the rich convention."""
+
+    def test_rich_fields_extracted(self):
+        stem = "HTempGall_T1_INC625M_HX_dry_450C_R360_RP_6480N_43mm2_ring"
+        p = _core_parse_stem(stem)
+        assert p["test"] == "T1"
+        assert p["material"] == "INC625M"
+        assert p["plate_material"] == "HX"
+        assert p["condition"] == "dry"
+        assert p["temperature_C"] == pytest.approx(450.0)
+        assert p["rotation_deg"] == pytest.approx(360.0)
+        assert p["geometry"] == "RP"
+        assert p["force_N"] == pytest.approx(6480.0)
+        assert p["area_mm2"] == pytest.approx(43.0)
+        assert p["method_name"] == "HTempGall"
+
+    def test_old_convention_fields_absent(self):
+        """Old convention: new metadata fields must be None."""
+        stem = "T10_INC718_810N_43mm2_ring"
+        p = _core_parse_stem(stem)
+        assert p["test"] == "T10"
+        assert p["material"] == "INC718"
+        assert p["force_N"] == pytest.approx(810.0)
+        assert p["plate_material"] is None
+        assert p["condition"] is None
+        assert p["temperature_C"] is None
+        assert p["rotation_deg"] is None
+        assert p["method_name"] is None
+
+    def test_rich_negative_temperature(self):
+        """Negative temperature values must parse correctly."""
+        stem = "CryoTest_T5_Steel_HX_dry_-50C_R360_RP_1000N_43mm2_ring"
+        p = _core_parse_stem(stem)
+        assert p["temperature_C"] == pytest.approx(-50.0)
+        assert p["method_name"] == "CryoTest"

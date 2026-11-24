@@ -104,17 +104,56 @@ def odd(n):
 
 
 def _parse_stem(stem: str) -> dict:
-    """Extrahiert Versuchskennung, Material, Kraft und Fläche aus dem Dateinamen."""
-    base = {"test": "", "material": "", "force_N": None, "area_mm2": None}
-    # Neues Schema: T{N}_{Material}_{Force}N_{Area}mm2_ring
-    m = re.match(r"^(T\d+)_([A-Za-z0-9]+)_(\d+)N_(\d+)mm2_ring", stem, re.IGNORECASE)
+    """Extract test ID and all metadata from the filename.
+
+    Supports three conventions (tried in order):
+    1. Rich: {method}_T{N}_{ring}_{plate}_{cond}_{temp}C_{rot}_{geom}_{force}N_{area}mm2_ring
+       e.g.  HTempGall_T1_INC625M_HX_dry_450C_R360_RP_6480N_43mm2_ring
+    2. Old:  T{N}_{Material}[_{cond}]_{force}N[_{cond}]_{area}mm2_ring
+       e.g.  T10_INC718_810N_43mm2_ring   or   T8_INC718_1620N_grinded_43mm2_ring
+    3. Legacy: ring{N}_{Material}_{TX}
+    """
+    base = {
+        "test": "", "material": "", "force_N": None, "area_mm2": None,
+        "plate_material": None, "condition": None, "temperature_C": None,
+        "rotation_deg": None, "geometry": None, "method_name": None,
+    }
+
+    # 1 — Rich convention
+    m = re.match(
+        r"^(?P<method>[A-Za-z][^_]*)_(?P<probe>T\d+)_(?P<ring>[^_]+)_"
+        r"(?P<plate>[^_]+)_(?P<cond>[^_]+)_(?P<temp>-?\d+(?:\.\d+)?)C_"
+        r"(?P<rot>R\d+)_(?P<geom>[^_]+)_(?P<force>\d+)N_(?P<area>\d+)mm2_ring",
+        stem, re.IGNORECASE,
+    )
+    if m:
+        return {**base,
+                "test":           m.group("probe"),
+                "material":       m.group("ring"),
+                "force_N":        float(m.group("force")),
+                "area_mm2":       float(m.group("area")),
+                "plate_material": m.group("plate"),
+                "condition":      m.group("cond"),
+                "temperature_C":  float(m.group("temp")),
+                "rotation_deg":   float(m.group("rot")[1:]),  # strip R prefix
+                "geometry":       m.group("geom"),
+                "method_name":    m.group("method"),
+                }
+
+    # 2 — Old convention (optional condition token before or after force/area)
+    m = re.match(
+        r"^(T\d+)_([A-Za-z0-9]+)_(\d+)N_(?:[A-Za-z][^_]*_)?(\d+)mm2_ring",
+        stem, re.IGNORECASE,
+    )
     if m:
         return {**base, "test": m.group(1), "material": m.group(2),
                 "force_N": float(m.group(3)), "area_mm2": float(m.group(4))}
-    # Altes Schema (Rückwärtskompatibilität): ring{N}_{Material}_{TX}
+
+    # 3 — Legacy schema: ring{N}_{Material}_{TX}
     m = re.match(r"(ring\d+)_([A-Za-z0-9]+)_(T\d+)", stem, re.IGNORECASE)
     if m:
         return {**base, "test": m.group(3), "material": m.group(2)}
+
     return {**base}
 
 
@@ -474,6 +513,12 @@ def analyse(path: Path, p: Params, outdir: Path, panel=False, font=None,
         file=path.name,
         test_id=parsed["test"],
         material=parsed["material"],
+        plate_material=parsed.get("plate_material"),
+        condition=parsed.get("condition"),
+        temperature_C=parsed.get("temperature_C"),
+        rotation_deg=parsed.get("rotation_deg"),
+        geometry=parsed.get("geometry"),
+        method_name=parsed.get("method_name"),
         force_N=force_N,
         sample_area_mm2=nom_area,
         ring_area_nominal_mm2=round(ring_area_nominal_mm2, 2),
