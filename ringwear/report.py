@@ -193,9 +193,9 @@ def write_html(rows: list, outdir: Path, *, plate_lookup: "dict | None" = None) 
         )
         img_block = (
             f'<div class="img-row">'
-            f'{_img(worn_path,  "worn probe", "② Worn probe")}'
-            f'{_img(new_path,   "new probe",  "① New probe (unworn)")}'
-            f'{_img(ov_file,    "wear overlay", "③ Wear detected (red)")}'
+            f'{_img(new_path,   "new probe",  "① New probe ring (unworn)")}'
+            f'{_img(worn_path,  "worn probe", "② Worn probe ring")}'
+            f'{_img(ov_file,    "wear overlay", "③ Wear detected (ring)")}'
             f'{plate_cell}'
             f'</div>'
         )
@@ -290,17 +290,20 @@ def write_html(rows: list, outdir: Path, *, plate_lookup: "dict | None" = None) 
         if _geom:
             meta_rows.append(("Geometry",        esc(_geom)))
 
+        def _rfmt(v, d=2):
+            return f"{round(v, d)}" if isinstance(v, (int, float)) else "–"
+
         metrics = (
             meta_rows
             + [
                 ("Wear fraction",         frac_unc),
                 ("Wear area (analyzed)",  wear_a_str),
-                ("Ring area nominal",     f"{esc(a_nom)} mm²"),
-                ("Ring area analyzed",    f"{esc(row.get('ring_area_analyzed_mm2'))} mm²"),
-                ("Bore Ø measured",       f"{esc(row.get('bore_diameter_measured_mm'))} mm"),
+                ("Ring area nominal",     f"{_rfmt(a_nom, 1)} mm²"),
+                ("Ring area analyzed",    f"{_rfmt(row.get('ring_area_analyzed_mm2'), 2)} mm²"),
+                ("Bore Ø measured",       f"{_rfmt(row.get('bore_diameter_measured_mm'), 2)} mm"),
                 ("Geometric pressure",    f"{geo_p:.1f} MPa"  if geo_p else "–"),
                 ("Resulting pressure",    res_p_str),
-                ("µm/px",                 esc(row.get("um_per_px"))),
+                ("µm/px",                 _rfmt(row.get("um_per_px"), 3)),
                 ("Threshold",             esc(row.get("threshold"))),
                 ("Seam",                  esc(row.get("seam_status"))),
                 ("Flags",                 flag_val),
@@ -573,20 +576,21 @@ def write_pptx(rows: list, outdir: Path, *, plate_lookup: "dict | None" = None) 
             if _pp and Path(_pp).exists():
                 _plate_abs = str(_pp)
         if _plate_abs:
-            IMG_CAPTIONS = ["② Worn probe", "① New probe (unworn)",
-                            "③ Wear detected", "④ Counter body (plate)"]
+            IMG_CAPTIONS = ["① New probe ring (unworn)", "② Worn probe ring",
+                            "③ Wear detected (ring)", "④ Counter body (plate)"]
             img_specs = [
-                row.get("_worn_abspath"),
                 row.get("_new_probe_abspath"),
+                row.get("_worn_abspath"),
                 str(outdir / f"{stem}_overlay.png"),
                 _plate_abs,
             ]
             IMG_Y, IMG_W, IMG_GAP = 0.72, 1.85, 0.10
         else:
-            IMG_CAPTIONS = ["② Worn probe", "① New probe (unworn)", "③ Wear detected"]
+            IMG_CAPTIONS = ["① New probe ring (unworn)", "② Worn probe ring",
+                            "③ Wear detected (ring)"]
             img_specs = [
-                row.get("_worn_abspath"),
                 row.get("_new_probe_abspath"),
+                row.get("_worn_abspath"),
                 str(outdir / f"{stem}_overlay.png"),
             ]
             IMG_Y, IMG_W, IMG_GAP = 0.72, 2.55, 0.12
@@ -657,15 +661,18 @@ def write_pptx(rows: list, outdir: Path, *, plate_lookup: "dict | None" = None) 
             _extra_lines.append(("Rotation",       f"{row['rotation_deg']:.0f}°"))
         if row.get("geometry"):
             _extra_lines.append(("Geometry",       row["geometry"]))
+        def _pf(v, d=2):
+            return f"{round(v, d)}" if isinstance(v, (int, float)) else "–"
+
         lines = _extra_lines + [
             ("Wear fraction",        frac_str),
             ("Wear area (analyzed)", wear_a_str_p),
             ("Geometric pressure",   f"{geo_p:.1f} MPa"  if geo_p  else "–"),
             ("Resulting pressure",   res_p_str_p),
-            ("Bore Ø measured",      f"{row.get('bore_diameter_measured_mm','–')} mm"),
-            ("Ring area nominal",    f"{a_nom_p or '–'} mm²"),
-            ("Ring area analyzed",   f"{a_anal_p or '–'} mm²"),
-            ("µm/px",                str(row.get("um_per_px", "–"))),
+            ("Bore Ø measured",      f"{_pf(row.get('bore_diameter_measured_mm'), 2)} mm"),
+            ("Ring area nominal",    f"{_pf(a_nom_p, 1)} mm²"),
+            ("Ring area analyzed",   f"{_pf(a_anal_p, 2)} mm²"),
+            ("µm/px",                _pf(row.get("um_per_px"), 3)),
             ("Threshold",            str(row.get("threshold", "–"))),
             ("Seam",                 row.get("seam_status", "–")),
             ("Flags",                row.get("flags", "") or "–"),

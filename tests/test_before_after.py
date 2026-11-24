@@ -36,7 +36,7 @@ def _copy_worn(src: Path, dst: Path, name: str) -> Path:
 
 WORN_DIR = Path(__file__).parent.parent / "data" / "worn"
 _REF_EXT = ".jpg"
-_REAL_IMAGE = WORN_DIR / f"T10_INC718_810N_43mm2_ring{_REF_EXT}"
+_REAL_IMAGE = WORN_DIR / f"HTempGall_T10_INC718_HX_dry_450C_R360_RP_810N_43mm2_ring{_REF_EXT}"
 _HAS_REAL = _REAL_IMAGE.exists()
 
 

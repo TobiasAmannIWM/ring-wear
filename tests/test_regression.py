@@ -18,14 +18,15 @@ ANN = ROOT / "data" / "annotated"
 
 EXPECTED = {
     # stem: (wear_fraction, um_per_px, ring_area_analyzed_mm2)
-    # Namensschema: T{N}_{Material}_{Force}N_{Area}mm2_ring
-    # Werte kalibriert 2026-11-13.
+    # Namensschema ab 2026-11-24: HTempGall_{probe}_{ring}_{plate}_{cond}_{temp}C_{rot}_{geom}_{force}N_{area}mm2_ring
+    # Umbenennung 2026-11-24: Dateien auf Rich-Konvention umgestellt (data/worn ist Junction auf Desktop/worn).
+    # Referenzwerte unverändert — dieselben Bilder, nur neuer Dateiname.
     # ring_area_analyzed_mm2: sichtbarer Bildausschnitt (nicht die volle 43mm²-Kontaktfläche).
     # Nominale Ringfläche π/4·(8²−3²)=43,2mm² wird aus Params.outer/inner_diam_mm berechnet.
-    "T10_INC718_810N_43mm2_ring":  (0.178, 3.378, 6.04),
-    "T9_INC625M_810N_43mm2_ring":  (0.129, 3.378, 6.08),
-    "T7_INC718_1620N_43mm2_ring":  (0.079, 3.378, 5.95),
-    "T3_INC625M_1620N_43mm2_ring": (0.042, 3.378, 5.96),
+    "HTempGall_T10_INC718_HX_dry_450C_R360_RP_810N_43mm2_ring":  (0.178, 3.378, 6.04),
+    "HTempGall_T9_INC625M_HX_dry_450C_R360_RP_810N_43mm2_ring":  (0.129, 3.378, 6.08),
+    "HTempGall_T7_INC718_HX_dry_450C_R360_RP_1620N_43mm2_ring":  (0.079, 3.378, 5.95),
+    "HTempGall_T3_INC625M_HX_dry_450C_R360_RP_1620N_43mm2_ring": (0.042, 3.378, 5.96),
 }
 # Dateiendung der Referenzbilder
 _REF_EXT = ".jpg"
@@ -55,8 +56,8 @@ def test_reference_values(name, params, tmp_path):
 
 
 @pytest.mark.parametrize("clean,annotated", [
-    ("T10_INC718_810N_43mm2_ring", "T10_INC718_810N_43mm2_ring_annotated"),
-    ("T9_INC625M_810N_43mm2_ring", "T9_INC625M_810N_43mm2_ring_annotated"),
+    ("HTempGall_T10_INC718_HX_dry_450C_R360_RP_810N_43mm2_ring", "T10_INC718_810N_43mm2_ring_annotated"),
+    ("HTempGall_T9_INC625M_HX_dry_450C_R360_RP_810N_43mm2_ring", "T9_INC625M_810N_43mm2_ring_annotated"),
 ])
 def test_annotations_removed(clean, annotated, params, tmp_path):
     a = run(REF / f"{clean}{_REF_EXT}", params, tmp_path)
@@ -66,19 +67,19 @@ def test_annotations_removed(clean, annotated, params, tmp_path):
 
 @pytest.mark.parametrize("factor", [0.7, 1.5])
 def test_scale_invariance(factor, params, tmp_path):
-    src = Image.open(REF / f"T10_INC718_810N_43mm2_ring{_REF_EXT}").convert("RGB")
-    p = tmp_path / f"T10_INC718_810N_43mm2_ring_x{factor}.png"
+    src = Image.open(REF / f"HTempGall_T10_INC718_HX_dry_450C_R360_RP_810N_43mm2_ring{_REF_EXT}").convert("RGB")
+    p = tmp_path / f"HTempGall_T10_INC718_HX_dry_450C_R360_RP_810N_43mm2_ring_x{factor}.png"
     src.resize((int(src.width * factor), int(src.height * factor)), Image.LANCZOS).save(p)
-    a = run(REF / f"T10_INC718_810N_43mm2_ring{_REF_EXT}", params, tmp_path)
+    a = run(REF / f"HTempGall_T10_INC718_HX_dry_450C_R360_RP_810N_43mm2_ring{_REF_EXT}", params, tmp_path)
     b = run(p, params, tmp_path)
     assert abs(a["wear_fraction"] - b["wear_fraction"]) <= 0.01
 
 
 def test_exposure_invariance(params, tmp_path):
-    arr = np.array(Image.open(REF / f"T7_INC718_1620N_43mm2_ring{_REF_EXT}").convert("RGB")).astype(float)
-    p = tmp_path / "T7_INC718_1620N_43mm2_ring_dark.png"
+    arr = np.array(Image.open(REF / f"HTempGall_T7_INC718_HX_dry_450C_R360_RP_1620N_43mm2_ring{_REF_EXT}").convert("RGB")).astype(float)
+    p = tmp_path / "HTempGall_T7_INC718_HX_dry_450C_R360_RP_1620N_43mm2_ring_dark.png"
     Image.fromarray(np.clip(arr * 0.8, 0, 255).astype(np.uint8)).save(p)
-    a = run(REF / f"T7_INC718_1620N_43mm2_ring{_REF_EXT}", params, tmp_path)
+    a = run(REF / f"HTempGall_T7_INC718_HX_dry_450C_R360_RP_1620N_43mm2_ring{_REF_EXT}", params, tmp_path)
     b = run(p, params, tmp_path)
     assert abs(a["wear_fraction"] - b["wear_fraction"]) <= 0.01
 
