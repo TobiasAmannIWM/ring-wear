@@ -180,7 +180,7 @@ def write_html(rows: list, outdir: Path, *, plate_lookup: "dict | None" = None) 
         plate_cell = (
             (f'<div class="img-cell">'
              f'<img src="{plate_src}" alt="plate">'
-             f'<div class="img-caption">④ Plate (reference)</div></div>')
+             f'<div class="img-caption">④ Counter body (plate)</div></div>')
             if plate_src else ""
         )
         img_block = (
@@ -304,8 +304,8 @@ def write_html(rows: list, outdir: Path, *, plate_lookup: "dict | None" = None) 
         ".flag-warn{color:#a35200;font-size:.85em}"
         ".card{background:#fff;border-radius:6px;box-shadow:0 1px 5px rgba(0,0,0,.12);"
         "margin-bottom:24px;padding:18px 22px}"
-        ".img-row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}"
-        ".img-cell{flex:1 1 28%;min-width:180px;text-align:center}"
+        ".img-row{display:flex;gap:12px;flex-wrap:nowrap;margin-bottom:16px}"
+        ".img-cell{flex:1 1 0;min-width:0;text-align:center}"
         ".img-cell img{width:100%;height:auto;border:1px solid #ddd;border-radius:4px}"
         ".img-caption{font-size:.78em;color:#555;margin-top:4px;font-style:italic}"
         ".method-box{background:#f5f8fc;border-left:4px solid #1f4e79;border-radius:4px;"
@@ -502,7 +502,7 @@ def write_pptx(rows: list, outdir: Path, *, plate_lookup: "dict | None" = None) 
                 _plate_abs = str(_pp)
         if _plate_abs:
             IMG_CAPTIONS = ["② Worn probe", "① New probe (unworn)",
-                            "③ Wear detected", "④ Plate (reference)"]
+                            "③ Wear detected", "④ Counter body (plate)"]
             img_specs = [
                 row.get("_worn_abspath"),
                 row.get("_new_probe_abspath"),
